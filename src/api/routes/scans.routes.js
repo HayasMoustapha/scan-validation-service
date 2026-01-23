@@ -1,14 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const scansController = require('../controllers/scans.controller');
-const { authenticate, requirePermission, requireAPIKey } = require('../../middleware/auth');
+const { authenticateJWT, requirePermission, validateApiKey } = require('../../middleware/auth');
 
 /**
  * Routes pour la validation de tickets
  */
 
 // Middleware d'authentification pour la plupart des routes
-router.use(authenticate);
+router.use(authenticateJWT);
 
 // POST /api/scans/validate - Valider un ticket (temps réel)
 router.post('/validate',
@@ -81,7 +81,7 @@ router.get('/offline/data',
 // POST /api/scans/offline/cleanup - Nettoyer les données expirées
 router.post('/offline/cleanup',
   requirePermission('scans.offline.cleanup'),
-  routesController.cleanupExpiredData
+  scansController.cleanupExpiredData
 );
 
 // Routes de santé et statistiques
@@ -101,7 +101,7 @@ router.get('/stats',
 
 // POST /api/scans/webhooks/validate - Webhook de validation externe
 router.post('/webhooks/validate',
-  requireAPIKey('WEBHOOK_SECRET'),
+  validateApiKey,
   async (req, res) => {
   try {
     const { ticketData, scanContext, webhookId } = req.body;
@@ -173,7 +173,7 @@ router.post('/webhooks/validate',
 
 // POST /api/scans/webhooks/validate-batch - Webhook de validation en lot
 router.post('/webhooks/validate-batch',
-  requireAPIKey('WEBHOOK_SECRET'),
+  validateApiKey,
   async (req, res) => {
   try {
     const { tickets, scanContext, webhookId } = req.body;
@@ -280,7 +280,7 @@ router.post('/webhooks/validate-batch',
 
 // POST /api/scans/webhooks/sync - Webhook de synchronisation
 router.post('/webhooks/sync',
-  requireAPIKey('WEBHOOK_SECRET'),
+  validateApiKey,
   async (req, res) => {
   try {
     const { syncType, data, webhookId } = req.body;
@@ -373,7 +373,7 @@ router.post('/webhooks/sync',
 
 // POST /api/scans/webhooks/offline - Webhook pour les données offline
 router.post('/webhooks/offline',
-  requireAPIKey('WEBHOOK_SECRET'),
+  validateApiKey,
   async (req, res) => {
   try {
     const { action, data, webhookId } = req.body;
