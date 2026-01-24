@@ -13,7 +13,7 @@ const logger = require('./utils/logger');
 const healthRoutes = require('./health/health.routes');
 const scansRoutes = require('./api/routes/scans.routes');
 const offlineService = require('./core/offline/offline.service');
-const migrator = require('./database/migrator');
+const bootstrap = require("./bootstrap");
 
 /**
  * Serveur principal du Scan Validation Service
@@ -329,16 +329,9 @@ class ScanValidationServer {
    */
   async start() {
     try {
-      // Run database migrations first
-      logger.info('🔄 Running database migrations...');
-      const migrationResult = await migrator.migrate();
+      // Bootstrap automatique (crée la BD et applique les migrations)
+      await bootstrap.initialize();
       
-      if (migrationResult.executed > 0) {
-        logger.info(`✅ Successfully executed ${migrationResult.executed} migrations`);
-      } else {
-        logger.info('✅ Database is up to date');
-      }
-
       // Initialiser le service offline
       await offlineService.initialize();
       
