@@ -1,8 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const scansController = require('../controllers/scans.controller');
-const { authenticateJWT, validateApiKey } = require('../../../shared');
-const { requirePermission } = require('../../../shared');
+const { authenticateJWT, validateApiKey, requirePermission } = require('../../../../shared');
 const logger = require('../../utils/logger');
 const validationService = require('../../core/validation/validation.service');
 const offlineService = require('../../core/offline/offline.service');
