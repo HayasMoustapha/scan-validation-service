@@ -1,7 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const scansController = require('../controllers/scans.controller');
-const { authenticateJWT, requirePermission, validateApiKey } = require('../../middleware/auth');
+const { authenticateJWT, validateApiKey } = require('../../middleware/auth');
+const { requirePermission } = require('../../middleware/rbac');
+const logger = require('../../utils/logger');
+const validationService = require('../../core/validation/validation.service');
+const offlineService = require('../../core/offline/offline.service');
 
 /**
  * Routes pour la validation de tickets
