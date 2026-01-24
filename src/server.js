@@ -13,6 +13,7 @@ const logger = require('./utils/logger');
 const healthRoutes = require('./health/health.routes');
 const scansRoutes = require('./api/routes/scans.routes');
 const offlineService = require('./core/offline/offline.service');
+const migrator = require('./database/migrator');
 
 /**
  * Serveur principal du Scan Validation Service
@@ -328,8 +329,20 @@ class ScanValidationServer {
    */
   async start() {
     try {
+      // Run database migrations first
+      logger.info('🔄 Running database migrations...');
+      const migrationResult = await migrator.migrate();
+      
+      if (migrationResult.executed > 0) {
+        logger.info(`✅ Successfully executed ${migrationResult.executed} migrations`);
+      } else {
+        logger.info('✅ Database is up to date');
+      }
+
       // Initialiser le service offline
       await offlineService.initialize();
+      
+      logger.info('🚀 Starting Scan Validation Service server...');
       
       this.server = this.app.listen(this.port, () => {
         logger.info(`Scan Validation Service started successfully`, {
@@ -414,7 +427,10 @@ class ScanValidationServer {
 // Démarrer le serveur si ce fichier est exécuté directement
 if (require.main === module) {
   const server = new ScanValidationServer();
-  server.start();
+  server.start().catch(error => {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  });
 }
 
 module.exports = ScanValidationServer;
