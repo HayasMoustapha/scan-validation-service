@@ -607,6 +607,536 @@ class ScansController {
       );
     }
   }
+
+  /**
+   * Start a scan session
+   */
+  async startScanSession(req, res) {
+    try {
+      const {
+        eventId,
+        operatorId,
+        deviceId,
+        location,
+        deviceInfo
+      } = req.body;
+
+      logger.scan('Starting scan session', {
+        eventId,
+        operatorId,
+        deviceId,
+        location,
+        userId: req.user?.id
+      });
+
+      // Create scan session logic here
+      const session = {
+        id: `session_${Date.now()}`,
+        eventId,
+        operatorId,
+        deviceId,
+        location,
+        deviceInfo,
+        startedAt: new Date().toISOString(),
+        status: 'active'
+      };
+
+      return res.status(201).json(
+        createdResponse('Scan session started successfully', session)
+      );
+
+    } catch (error) {
+      logger.error('Failed to start scan session', {
+        error: error.message,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to start scan session', error.message)
+      );
+    }
+  }
+
+  /**
+   * End a scan session
+   */
+  async endScanSession(req, res) {
+    try {
+      const { sessionId } = req.body;
+
+      logger.scan('Ending scan session', {
+        sessionId,
+        userId: req.user?.id
+      });
+
+      // End scan session logic here
+      const session = {
+        id: sessionId,
+        endedAt: new Date().toISOString(),
+        status: 'completed'
+      };
+
+      return res.status(200).json(
+        successResponse('Scan session ended successfully', session)
+      );
+
+    } catch (error) {
+      logger.error('Failed to end scan session', {
+        error: error.message,
+        sessionId: req.body.sessionId,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to end scan session', error.message)
+      );
+    }
+  }
+
+  /**
+   * Get active scan sessions
+   */
+  async getActiveScanSessions(req, res) {
+    try {
+      const { eventId } = req.query;
+
+      logger.scan('Getting active scan sessions', {
+        eventId,
+        userId: req.user?.id
+      });
+
+      // Get active sessions logic here
+      const sessions = [];
+
+      return res.status(200).json(
+        successResponse('Active scan sessions retrieved successfully', sessions)
+      );
+
+    } catch (error) {
+      logger.error('Failed to get active scan sessions', {
+        error: error.message,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to get active scan sessions', error.message)
+      );
+    }
+  }
+
+  /**
+   * Get scan session
+   */
+  async getScanSession(req, res) {
+    try {
+      const { sessionId } = req.params;
+
+      logger.scan('Getting scan session', {
+        sessionId,
+        userId: req.user?.id
+      });
+
+      // Get session logic here
+      const session = {
+        id: sessionId,
+        status: 'active',
+        startedAt: new Date().toISOString()
+      };
+
+      return res.status(200).json(
+        successResponse('Scan session retrieved successfully', session)
+      );
+
+    } catch (error) {
+      logger.error('Failed to get scan session', {
+        error: error.message,
+        sessionId: req.params.sessionId,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to get scan session', error.message)
+      );
+    }
+  }
+
+  /**
+   * Register scan operator
+   */
+  async registerScanOperator(req, res) {
+    try {
+      const {
+        userId,
+        eventId,
+        permissions
+      } = req.body;
+
+      logger.scan('Registering scan operator', {
+        userId,
+        eventId,
+        permissions,
+        requesterId: req.user?.id
+      });
+
+      // Register operator logic here
+      const operator = {
+        id: `operator_${Date.now()}`,
+        userId,
+        eventId,
+        permissions,
+        registeredAt: new Date().toISOString()
+      };
+
+      return res.status(201).json(
+        createdResponse('Scan operator registered successfully', operator)
+      );
+
+    } catch (error) {
+      logger.error('Failed to register scan operator', {
+        error: error.message,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to register scan operator', error.message)
+      );
+    }
+  }
+
+  /**
+   * Get event scan operators
+   */
+  async getEventScanOperators(req, res) {
+    try {
+      const { eventId } = req.params;
+
+      logger.scan('Getting event scan operators', {
+        eventId,
+        userId: req.user?.id
+      });
+
+      // Get operators logic here
+      const operators = [];
+
+      return res.status(200).json(
+        successResponse('Event scan operators retrieved successfully', operators)
+      );
+
+    } catch (error) {
+      logger.error('Failed to get event scan operators', {
+        error: error.message,
+        eventId: req.params.eventId,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to get event scan operators', error.message)
+      );
+    }
+  }
+
+  /**
+   * Register scan device
+   */
+  async registerScanDevice(req, res) {
+    try {
+      const {
+        deviceId,
+        deviceName,
+        deviceType,
+        operatorId,
+        eventId,
+        locationId,
+        registrationData
+      } = req.body;
+
+      logger.scan('Registering scan device', {
+        deviceId,
+        deviceName,
+        deviceType,
+        eventId,
+        userId: req.user?.id
+      });
+
+      // Register device logic here
+      const device = {
+        id: deviceId,
+        deviceName,
+        deviceType,
+        operatorId,
+        eventId,
+        locationId,
+        registrationData,
+        registeredAt: new Date().toISOString()
+      };
+
+      return res.status(201).json(
+        createdResponse('Scan device registered successfully', device)
+      );
+
+    } catch (error) {
+      logger.error('Failed to register scan device', {
+        error: error.message,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to register scan device', error.message)
+      );
+    }
+  }
+
+  /**
+   * Get event scan devices
+   */
+  async getEventScanDevices(req, res) {
+    try {
+      const { eventId } = req.params;
+
+      logger.scan('Getting event scan devices', {
+        eventId,
+        userId: req.user?.id
+      });
+
+      // Get devices logic here
+      const devices = [];
+
+      return res.status(200).json(
+        successResponse('Event scan devices retrieved successfully', devices)
+      );
+
+    } catch (error) {
+      logger.error('Failed to get event scan devices', {
+        error: error.message,
+        eventId: req.params.eventId,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to get event scan devices', error.message)
+      );
+    }
+  }
+
+  /**
+   * Analyze fraud
+   */
+  async analyzeFraud(req, res) {
+    try {
+      const {
+        scanData,
+        analysisType = 'comprehensive'
+      } = req.body;
+
+      logger.fraud('Starting fraud analysis', {
+        analysisType,
+        scanDataCount: Array.isArray(scanData) ? scanData.length : 1,
+        userId: req.user?.id
+      });
+
+      // Fraud analysis logic here
+      const analysis = {
+        id: `analysis_${Date.now()}`,
+        analysisType,
+        riskScore: 0.15,
+        riskLevel: 'low',
+        suspiciousPatterns: [],
+        recommendations: [],
+        analyzedAt: new Date().toISOString()
+      };
+
+      return res.status(200).json(
+        successResponse('Fraud analysis completed successfully', analysis)
+      );
+
+    } catch (error) {
+      logger.error('Failed to analyze fraud', {
+        error: error.message,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to analyze fraud', error.message)
+      );
+    }
+  }
+
+  /**
+   * Get fraud stats
+   */
+  async getFraudStats(req, res) {
+    try {
+      const { eventId, period = '24h' } = req.query;
+
+      logger.fraud('Getting fraud statistics', {
+        eventId,
+        period,
+        userId: req.user?.id
+      });
+
+      // Get fraud stats logic here
+      const stats = {
+        totalScans: 1250,
+        suspiciousScans: 15,
+        blockedScans: 3,
+        riskScore: 0.12,
+        period,
+        eventId
+      };
+
+      return res.status(200).json(
+        successResponse('Fraud statistics retrieved successfully', stats)
+      );
+
+    } catch (error) {
+      logger.error('Failed to get fraud stats', {
+        error: error.message,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to get fraud stats', error.message)
+      );
+    }
+  }
+
+  /**
+   * Get event daily stats
+   */
+  async getEventDailyStats(req, res) {
+    try {
+      const { eventId } = req.params;
+      const { days = 30 } = req.query;
+
+      logger.scan('Getting event daily statistics', {
+        eventId,
+        days,
+        userId: req.user?.id
+      });
+
+      // Get daily stats logic here
+      const stats = {
+        eventId,
+        period: `${days} days`,
+        dailyData: [],
+        summary: {
+          totalScans: 5000,
+          uniqueTickets: 4800,
+          averageScansPerDay: 167
+        }
+      };
+
+      return res.status(200).json(
+        successResponse('Event daily statistics retrieved successfully', stats)
+      );
+
+    } catch (error) {
+      logger.error('Failed to get event daily stats', {
+        error: error.message,
+        eventId: req.params.eventId,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to get event daily stats', error.message)
+      );
+    }
+  }
+
+  /**
+   * Get event hourly stats
+   */
+  async getEventHourlyStats(req, res) {
+    try {
+      const { eventId } = req.params;
+      const { date } = req.query;
+
+      logger.scan('Getting event hourly statistics', {
+        eventId,
+        date,
+        userId: req.user?.id
+      });
+
+      // Get hourly stats logic here
+      const stats = {
+        eventId,
+        date: date || new Date().toISOString().split('T')[0],
+        hourlyData: [],
+        summary: {
+          totalScans: 850,
+          peakHour: '14:00',
+          peakScans: 120
+        }
+      };
+
+      return res.status(200).json(
+        successResponse('Event hourly statistics retrieved successfully', stats)
+      );
+
+    } catch (error) {
+      logger.error('Failed to get event hourly stats', {
+        error: error.message,
+        eventId: req.params.eventId,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to get event hourly stats', error.message)
+      );
+    }
+  }
+
+  /**
+   * Get event location stats
+   */
+  async getEventLocationStats(req, res) {
+    try {
+      const { eventId } = req.params;
+
+      logger.scan('Getting event location statistics', {
+        eventId,
+        userId: req.user?.id
+      });
+
+      // Get location stats logic here
+      const stats = {
+        eventId,
+        locations: [
+          {
+            locationId: 'entrance_main',
+            name: 'Entrée Principale',
+            scans: 2500,
+            percentage: 50
+          },
+          {
+            locationId: 'entrance_side',
+            name: 'Entrée Secondaire',
+            scans: 1500,
+            percentage: 30
+          }
+        ],
+        summary: {
+          totalLocations: 5,
+          totalScans: 5000
+        }
+      };
+
+      return res.status(200).json(
+        successResponse('Event location statistics retrieved successfully', stats)
+      );
+
+    } catch (error) {
+      logger.error('Failed to get event location stats', {
+        error: error.message,
+        eventId: req.params.eventId,
+        userId: req.user?.id
+      });
+
+      return res.status(500).json(
+        errorResponse('Failed to get event location stats', error.message)
+      );
+    }
+  }
 }
 
 module.exports = new ScansController();

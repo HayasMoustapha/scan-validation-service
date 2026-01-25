@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const scansController = require('../controllers/scans.controller');
-const { authenticateJWT, validateApiKey, requirePermission } = require('../../../../shared');
+const { authenticate, requirePermission, validateApiKey } = require('../../../../shared');
 const logger = require('../../utils/logger');
 const validationService = require('../../core/validation/validation.service');
 const offlineService = require('../../core/offline/offline.service');
@@ -11,7 +11,7 @@ const offlineService = require('../../core/offline/offline.service');
  */
 
 // Middleware d'authentification pour la plupart des routes
-router.use(authenticateJWT);
+router.use(authenticate);
 
 // POST /api/scans/validate - Valider un ticket (temps réel)
 router.post('/validate',
@@ -65,6 +65,94 @@ router.get('/events/:eventId/stats',
 router.post('/reports',
   requirePermission('scans.reports.generate'),
   scansController.generateValidationReport
+);
+
+// Routes de gestion des sessions de scan
+
+// POST /api/scans/sessions/start - Démarrer une session de scan
+router.post('/sessions/start',
+  requirePermission('scans.sessions.create'),
+  scansController.startScanSession
+);
+
+// POST /api/scans/sessions/end - Terminer une session de scan
+router.post('/sessions/end',
+  requirePermission('scans.sessions.update'),
+  scansController.endScanSession
+);
+
+// GET /api/scans/sessions/active - Récupérer les sessions actives
+router.get('/sessions/active',
+  requirePermission('scans.sessions.read'),
+  scansController.getActiveScanSessions
+);
+
+// GET /api/scans/sessions/:sessionId - Récupérer une session de scan
+router.get('/sessions/:sessionId',
+  requirePermission('scans.sessions.read'),
+  scansController.getScanSession
+);
+
+// Routes de gestion des opérateurs de scan
+
+// POST /api/scans/operators/register - Enregistrer un opérateur
+router.post('/operators/register',
+  requirePermission('scans.operators.create'),
+  scansController.registerScanOperator
+);
+
+// GET /api/scans/operators/event/:eventId - Récupérer les opérateurs d'un événement
+router.get('/operators/event/:eventId',
+  requirePermission('scans.operators.read'),
+  scansController.getEventScanOperators
+);
+
+// Routes de gestion des appareils de scan
+
+// POST /api/scans/devices/register - Enregistrer un appareil
+router.post('/devices/register',
+  requirePermission('scans.devices.create'),
+  scansController.registerScanDevice
+);
+
+// GET /api/scans/devices/event/:eventId - Récupérer les appareils d'un événement
+router.get('/devices/event/:eventId',
+  requirePermission('scans.devices.read'),
+  scansController.getEventScanDevices
+);
+
+// Routes d'analyse anti-fraude
+
+// POST /api/scans/fraud/analyze - Analyser une activité suspecte
+router.post('/fraud/analyze',
+  requirePermission('scans.fraud.analyze'),
+  scansController.analyzeFraud
+);
+
+// GET /api/scans/fraud/stats - Statistiques de fraude
+router.get('/fraud/stats',
+  requirePermission('scans.fraud.read'),
+  scansController.getFraudStats
+);
+
+// Routes de statistiques détaillées
+
+// GET /api/scans/events/:eventId/stats/daily - Statistiques journalières
+router.get('/events/:eventId/stats/daily',
+  requirePermission('scans.stats.read'),
+  scansController.getEventDailyStats
+);
+
+// GET /api/scans/events/:eventId/stats/hourly - Statistiques horaires
+router.get('/events/:eventId/stats/hourly',
+  requirePermission('scans.stats.read'),
+  scansController.getEventHourlyStats
+);
+
+// GET /api/scans/events/:eventId/stats/locations - Statistiques par localisation
+router.get('/events/:eventId/stats/locations',
+  requirePermission('scans.stats.read'),
+  scansController.getEventLocationStats
 );
 
 // Routes de gestion des données offline
