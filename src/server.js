@@ -5,7 +5,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
-const { ipKeyGenerator } = require('express-rate-limit');
 const mongoSanitize = require('express-mongo-sanitize');
 const morgan = require('morgan');
 const rawBody = require('raw-body');
@@ -102,20 +101,20 @@ class ScanValidationServer {
     }
 
     // Rate limiting général
-    const limiter = rateLimit({
-      windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-      max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
-      message: {
-        success: false,
-        message: 'Trop de requêtes, veuillez réessayer plus tard',
-        error: {
-          code: 'RATE_LIMIT_EXCEEDED'
-        }
-      },
-      standardHeaders: true,
-      legacyHeaders: false,
-    });
-    this.app.use('/api', limiter);
+    // const limiter = rateLimit({
+    //   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+    //   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
+    //   message: {
+    //     success: false,
+    //     message: 'Trop de requêtes, veuillez réessayer plus tard',
+    //     error: {
+    //       code: 'RATE_LIMIT_EXCEEDED'
+    //     }
+    //   },
+    //   standardHeaders: true,
+    //   legacyHeaders: false,
+    // });
+    // this.app.use('/api', limiter);
 
     // Rate limiting spécifique pour les scans
     const scanLimiter = rateLimit({
@@ -127,10 +126,6 @@ class ScanValidationServer {
         error: {
           code: 'SCAN_RATE_LIMIT_EXCEEDED'
         }
-      },
-      keyGenerator: (req) => {
-        // Utiliser l'ID utilisateur si authentifié, sinon l'IP avec gestion IPv6 sécurisée
-        return req.user?.id || ipKeyGenerator(req);
       }
     });
     this.app.use('/api/scans/validate', scanLimiter);
@@ -247,7 +242,7 @@ class ScanValidationServer {
     }
 
     // Route 404
-    this.app.use('*', (req, res) => {
+    this.app.use((req, res) => {
       res.status(404).json({
         success: false,
         message: 'Route non trouvée',
