@@ -72,21 +72,21 @@ GET /api/scans/stats
 
 ## 🎫 **Ticket Validation Routes**
 
-### Validate Ticket (Real-time)
+### Validate Ticket
 ```
 POST /api/scans/validate
 ```
-- **Description**: Valide un ticket en temps réel
+- **Description**: Valider un ticket via QR code
 - **Authentification**: Requise
 - **Permissions**: `scans.validate`
 - **Request Body**:
 ```json
 {
-  "qrCode": "{\"id\":\"TICKET-123\",\"eventId\":\"EVENT-456\",\"type\":\"standard\",\"nonce\":\"abc123\",\"signature\":\"signature123\"}",
+  "qrCode": "{\"id\":\"ticket_123456\",\"eventId\":\"event_123456\",\"type\":\"standard\",\"timestamp\":1706034800,\"nonce\":\"abc123\",\"signature\":\"signature123\"}",
   "scanContext": {
     "location": "Entrée principale",
     "deviceId": "scanner-001",
-    "operatorId": "operator-123"
+    "operatorId": "operator_123456"
   }
 }
 ```
