@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const scansController = require('../controllers/scans.controller');
 const { authenticate, requirePermission, validateApiKey } = require('../../../../shared');
+const { injectUserContext } = require('../../../../shared/context-middleware');
 const logger = require('../../utils/logger');
 const validationService = require('../../core/validation/validation.service');
 const offlineService = require('../../core/offline/offline.service');
@@ -15,54 +16,72 @@ router.use(authenticate);
 
 // POST /api/scans/validate - Valider un ticket (temps réel)
 router.post('/validate',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.validate'),
   scansController.validateTicket
 );
 
 // POST /api/scans/validate-offline - Valider un ticket (mode offline)
 router.post('/validate-offline',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.validate.offline'),
   scansController.validateTicketOffline
 );
 
 // POST /api/scans/qr/generate - Générer un QR code
 router.post('/qr/generate',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.qr.generate'),
   scansController.generateQRCode
 );
 
 // POST /api/scans/qr/batch - Générer des QR codes en lot
 router.post('/qr/batch',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.qr.batch'),
   scansController.generateBatchQRCodes
 );
 
 // POST /api/scans/qr/test - Générer un QR code de test
 router.post('/qr/test',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.qr.test'),
   scansController.generateTestQRCode
 );
 
 // POST /api/scans/qr/decode - Décoder et valider un QR code
 router.post('/qr/decode',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.qr.decode'),
   scansController.decodeAndValidateQRCode
 );
 
 // GET /api/scans/:ticketId/history - Récupérer l'historique des scans
 router.get('/:ticketId/history',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.history.read'),
   scansController.getTicketScanHistory
 );
 
 // GET /api/scans/events/:eventId/stats - Statistiques de scan d'un événement
 router.get('/events/:eventId/stats',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.stats.read'),
   scansController.getEventScanStats
 );
 
 // POST /api/scans/reports - Générer un rapport de validation
 router.post('/reports',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.reports.generate'),
   scansController.generateValidationReport
 );
@@ -71,24 +90,32 @@ router.post('/reports',
 
 // POST /api/scans/sessions/start - Démarrer une session de scan
 router.post('/sessions/start',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.sessions.create'),
   scansController.startScanSession
 );
 
 // POST /api/scans/sessions/end - Terminer une session de scan
 router.post('/sessions/end',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.sessions.update'),
   scansController.endScanSession
 );
 
 // GET /api/scans/sessions/active - Récupérer les sessions actives
 router.get('/sessions/active',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.sessions.read'),
   scansController.getActiveScanSessions
 );
 
 // GET /api/scans/sessions/:sessionId - Récupérer une session de scan
 router.get('/sessions/:sessionId',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.sessions.read'),
   scansController.getScanSession
 );
@@ -97,12 +124,16 @@ router.get('/sessions/:sessionId',
 
 // POST /api/scans/operators/register - Enregistrer un opérateur
 router.post('/operators/register',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.operators.create'),
   scansController.registerScanOperator
 );
 
 // GET /api/scans/operators/event/:eventId - Récupérer les opérateurs d'un événement
 router.get('/operators/event/:eventId',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.operators.read'),
   scansController.getEventScanOperators
 );
@@ -111,12 +142,16 @@ router.get('/operators/event/:eventId',
 
 // POST /api/scans/devices/register - Enregistrer un appareil
 router.post('/devices/register',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.devices.create'),
   scansController.registerScanDevice
 );
 
 // GET /api/scans/devices/event/:eventId - Récupérer les appareils d'un événement
 router.get('/devices/event/:eventId',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.devices.read'),
   scansController.getEventScanDevices
 );
@@ -125,12 +160,16 @@ router.get('/devices/event/:eventId',
 
 // POST /api/scans/fraud/analyze - Analyser une activité suspecte
 router.post('/fraud/analyze',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.fraud.analyze'),
   scansController.analyzeFraud
 );
 
 // GET /api/scans/fraud/stats - Statistiques de fraude
 router.get('/fraud/stats',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.fraud.read'),
   scansController.getFraudStats
 );
@@ -139,18 +178,24 @@ router.get('/fraud/stats',
 
 // GET /api/scans/events/:eventId/stats/daily - Statistiques journalières
 router.get('/events/:eventId/stats/daily',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.stats.read'),
   scansController.getEventDailyStats
 );
 
 // GET /api/scans/events/:eventId/stats/hourly - Statistiques horaires
 router.get('/events/:eventId/stats/hourly',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.stats.read'),
   scansController.getEventHourlyStats
 );
 
 // GET /api/scans/events/:eventId/stats/locations - Statistiques par localisation
 router.get('/events/:eventId/stats/locations',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.stats.read'),
   scansController.getEventLocationStats
 );
@@ -159,18 +204,24 @@ router.get('/events/:eventId/stats/locations',
 
 // POST /api/scans/offline/sync - Synchroniser les données offline
 router.post('/offline/sync',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.offline.sync'),
   scansController.syncOfflineData
 );
 
 // GET /api/scans/offline/data - Récupérer les données offline
 router.get('/offline/data',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.offline.read'),
   scansController.getOfflineData
 );
 
 // POST /api/scans/offline/cleanup - Nettoyer les données expirées
 router.post('/offline/cleanup',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.offline.cleanup'),
   scansController.cleanupExpiredData
 );
@@ -184,6 +235,8 @@ router.get('/health',
 
 // GET /api/scans/stats - Récupérer les statistiques du service
 router.get('/stats',
+  authenticate,
+  injectUserContext,
   requirePermission('scans.stats.read'),
   scansController.getStats
 );
