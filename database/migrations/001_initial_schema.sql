@@ -133,17 +133,3 @@ COMMENT ON TABLE scan_operators IS 'Opérateurs autorisés pour le scan';
 COMMENT ON TABLE validation_rules IS 'Règles de validation des tickets';
 COMMENT ON TABLE fraud_attempts IS 'Tentatives de fraude détectées';
 COMMENT ON TABLE scanned_tickets_cache IS 'Cache des tickets scannés pour performance';
-
--- Insertion d'un opérateur de scan par défaut
-INSERT INTO scan_operators (access_code, permissions, is_active, created_by) VALUES 
-('SCAN_001', '{"can_scan": true, "can_validate": true, "can_view_stats": true}', true, 1)
-ON CONFLICT (access_code) DO NOTHING;
-
--- Insertion de règles de validation par défaut
-INSERT INTO validation_rules (rule_type, parameters, is_active, priority, created_by) VALUES 
-('ticket_expiry', '{"hours": 24, "grace_period": 1}', true, 1, 1),
-('duplicate_check', '{"check_interval": 1000, "max_scans": 5}', true, 2, 1),
-('location_validation', '{"allowed_locations": ["main_entrance", "side_entrance"]}', true, 3, 1),
-('time_window', '{"start_time": "09:00", "end_time": "23:00", "timezone": "Europe/Paris"}', true, 4, 1),
-('rate_limiting', '{"max_scans_per_minute": 10, "max_scans_per_hour": 100}', true, 5, 1)
-ON CONFLICT DO NOTHING;
