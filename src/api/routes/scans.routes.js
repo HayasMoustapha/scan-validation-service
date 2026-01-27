@@ -1,617 +1,277 @@
 const express = require('express');
+const Joi = require('joi');
 const router = express.Router();
 const scansController = require('../controllers/scans.controller');
-const { authenticate, requirePermission, validateApiKey } = require('../../../../shared');
-const { injectUserContext } = require('../../../../shared/context-middleware');
+const { SecurityMiddleware, ValidationMiddleware, ContextInjector } = require('../../../../shared');
+const scanValidationErrorHandler = require('../../error/scan-validation.errorHandler');
 const logger = require('../../utils/logger');
-const validationService = require('../../core/validation/validation.service');
-const offlineService = require('../../core/offline/offline.service');
 
 /**
  * Routes pour la validation de tickets
  */
 
-// Middleware d'authentification pour la plupart des routes
-router.use(authenticate);
+// Apply authentication to all routes
+router.use(SecurityMiddleware.authenticated());
+
+// Apply context injection for all authenticated routes
+router.use(ContextInjector.injectUserContext());
+
+// Apply error handler for all routes
+router.use(scanValidationErrorHandler);
+
+// Validation schemas
+const validateTicketSchema = Joi.object({
+  qrCode: Joi.string().required(),
+  scanContext: Joi.object({
+    location: Joi.string().optional(),
+    deviceId: Joi.string().optional(),
+    checkpointId: Joi.string().optional(),
+    timestamp: Joi.date().optional()
+  }).optional()
+});
+
+const validateTicketOfflineSchema = Joi.object({
+  qrCode: Joi.string().required(),
+  scanContext: Joi.object({
+    location: Joi.string().required(),
+    deviceId: Joi.string().required(),
+    checkpointId: Joi.string().required(),
+    timestamp: Joi.date().required(),
+    offlineMode: Joi.boolean().default(true)
+  }).required(),
+  offlineData: Joi.object({
+    cachedTickets: Joi.array().optional(),
+    lastSync: Joi.date().optional()
+  }).optional()
+});
+
+const generateQRCodeSchema = Joi.object({
+  ticketId: Joi.string().required(),
+  eventId: Joi.string().required(),
+  ticketType: Joi.string().valid('standard', 'vip', 'premium', 'staff').required(),
+  attendeeInfo: Joi.object({
+    name: Joi.string().required(),
+    email: Joi.string().email().required(),
+    phone: Joi.string().optional()
+  }).required(),
+  metadata: Joi.object().optional()
+});
+
+const batchQRCodeSchema = Joi.object({
+  tickets: Joi.array().items(
+    Joi.object({
+      ticketId: Joi.string().required(),
+      eventId: Joi.string().required(),
+      ticketType: Joi.string().valid('standard', 'vip', 'premium', 'staff').required(),
+      attendeeInfo: Joi.object({
+        name: Joi.string().required(),
+        email: Joi.string().email().required(),
+        phone: Joi.string().optional()
+      }).required()
+    })
+  ).min(1).max(100).required()
+});
+
+const testQRCodeSchema = Joi.object({
+  ticketType: Joi.string().valid('standard', 'vip', 'premium', 'staff').default('standard'),
+  eventId: Joi.string().optional(),
+  testData: Joi.boolean().default(true)
+});
 
 // POST /api/scans/validate - Valider un ticket (temps réel)
 router.post('/validate',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.validate'),
+  SecurityMiddleware.withPermissions('scans.validate'),
+  ValidationMiddleware.validate({ body: validateTicketSchema }),
   scansController.validateTicket
 );
 
 // POST /api/scans/validate-offline - Valider un ticket (mode offline)
 router.post('/validate-offline',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.validate.offline'),
+  SecurityMiddleware.withPermissions('scans.validate.offline'),
+  ValidationMiddleware.validate({ body: validateTicketOfflineSchema }),
   scansController.validateTicketOffline
 );
 
 // POST /api/scans/qr/generate - Générer un QR code
 router.post('/qr/generate',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.qr.generate'),
+  SecurityMiddleware.withPermissions('scans.qr.generate'),
+  ValidationMiddleware.validate({ body: generateQRCodeSchema }),
   scansController.generateQRCode
 );
 
 // POST /api/scans/qr/batch - Générer des QR codes en lot
 router.post('/qr/batch',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.qr.batch'),
+  SecurityMiddleware.withPermissions('scans.qr.batch'),
+  ValidationMiddleware.validate({ body: batchQRCodeSchema }),
   scansController.generateBatchQRCodes
 );
 
 // POST /api/scans/qr/test - Générer un QR code de test
 router.post('/qr/test',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.qr.test'),
+  SecurityMiddleware.withPermissions('scans.qr.test'),
+  ValidationMiddleware.validate({ body: testQRCodeSchema }),
   scansController.generateTestQRCode
 );
 
-// POST /api/scans/qr/decode - Décoder et valider un QR code
-router.post('/qr/decode',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.qr.decode'),
-  scansController.decodeAndValidateQRCode
+// GET /api/scans/stats - Obtenir les statistiques de scans
+router.get('/stats',
+  SecurityMiddleware.withPermissions('scans.stats.read'),
+  scansController.getStats
 );
 
-// GET /api/scans/:ticketId/history - Récupérer l'historique des scans
-router.get('/:ticketId/history',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.history.read'),
+// POST /api/scans/fraud/analyze - Analyser la détection de fraude
+router.post('/fraud/analyze',
+  SecurityMiddleware.withPermissions('scans.fraud.analyze'),
+  ValidationMiddleware.validate({
+    body: Joi.object({
+      scanData: Joi.object({
+        qrCode: Joi.string().required(),
+        scanContext: Joi.object({
+          location: Joi.string().required(),
+          deviceId: Joi.string().required(),
+          timestamp: Joi.date().required()
+        }).required()
+      }).required()
+    })
+  }),
+  scansController.analyzeFraud
+);
+
+// GET /api/scans/fraud/stats - Obtenir les statistiques de fraude
+router.get('/fraud/stats',
+  SecurityMiddleware.withPermissions('scans.fraud.stats'),
+  ValidationMiddleware.validateQuery({
+    eventId: Joi.string().optional(),
+    period: Joi.string().valid('1h', '24h', '7d', '30d').default('24h')
+  }),
+  scansController.getFraudStats
+);
+
+// GET /api/scans/history/ticket/:ticketId - Obtenir l'historique des scans d'un ticket
+router.get('/history/ticket/:ticketId',
+  SecurityMiddleware.withPermissions('scans.history.read'),
+  ValidationMiddleware.validateParams({
+    ticketId: Joi.string().required()
+  }),
   scansController.getTicketScanHistory
 );
 
-// GET /api/scans/events/:eventId/stats - Statistiques de scan d'un événement
-router.get('/events/:eventId/stats',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.stats.read'),
-  scansController.getEventScanStats
+// POST /api/scans/sync - Synchroniser les données offline
+router.post('/sync',
+  SecurityMiddleware.withPermissions('scans.sync'),
+  ValidationMiddleware.validate({
+    body: Joi.object({
+      offlineData: Joi.array().items(
+        Joi.object({
+          qrCode: Joi.string().required(),
+          scanResult: Joi.object().required(),
+          timestamp: Joi.date().required(),
+          deviceId: Joi.string().required()
+        })
+      ).required(),
+      deviceId: Joi.string().required()
+    })
+  }),
+  scansController.syncOfflineData
 );
 
-// POST /api/scans/reports - Générer un rapport de validation
-router.post('/reports',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.reports.generate'),
-  scansController.generateValidationReport
+// GET /api/scans/offline/data - Obtenir les données offline
+router.get('/offline/data',
+  SecurityMiddleware.withPermissions('scans.offline.read'),
+  ValidationMiddleware.validateQuery({
+    ticketId: Joi.string().optional()
+  }),
+  scansController.getOfflineData
 );
-
-// Routes de gestion des sessions de scan
 
 // POST /api/scans/sessions/start - Démarrer une session de scan
 router.post('/sessions/start',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.sessions.create'),
+  SecurityMiddleware.withPermissions('scans.sessions.create'),
+  ValidationMiddleware.validate({
+    body: Joi.object({
+      eventId: Joi.string().required(),
+      operatorId: Joi.string().required(),
+      deviceId: Joi.string().required(),
+      checkpointId: Joi.string().required()
+    })
+  }),
   scansController.startScanSession
 );
 
 // POST /api/scans/sessions/end - Terminer une session de scan
 router.post('/sessions/end',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.sessions.update'),
+  SecurityMiddleware.withPermissions('scans.sessions.update'),
+  ValidationMiddleware.validate({
+    body: Joi.object({
+      sessionId: Joi.string().required()
+    })
+  }),
   scansController.endScanSession
 );
 
-// GET /api/scans/sessions/active - Récupérer les sessions actives
+// GET /api/scans/sessions/active - Obtenir les sessions actives
 router.get('/sessions/active',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.sessions.read'),
+  SecurityMiddleware.withPermissions('scans.sessions.read'),
+  ValidationMiddleware.validateQuery({
+    eventId: Joi.string().optional()
+  }),
   scansController.getActiveScanSessions
 );
 
-// GET /api/scans/sessions/:sessionId - Récupérer une session de scan
+// GET /api/scans/sessions/:sessionId - Obtenir une session de scan
 router.get('/sessions/:sessionId',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.sessions.read'),
+  SecurityMiddleware.withPermissions('scans.sessions.read'),
+  ValidationMiddleware.validateParams({
+    sessionId: Joi.string().required()
+  }),
   scansController.getScanSession
 );
 
-// Routes de gestion des opérateurs de scan
-
-// POST /api/scans/operators/register - Enregistrer un opérateur
+// POST /api/scans/operators/register - Enregistrer un opérateur de scan
 router.post('/operators/register',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.operators.create'),
+  SecurityMiddleware.withPermissions('scans.operators.create'),
+  ValidationMiddleware.validate({
+    body: Joi.object({
+      userId: Joi.string().required(),
+      eventId: Joi.string().required(),
+      role: Joi.string().valid('operator', 'supervisor', 'admin').required(),
+      permissions: Joi.array().items(Joi.string()).required()
+    })
+  }),
   scansController.registerScanOperator
 );
 
-// GET /api/scans/operators/event/:eventId - Récupérer les opérateurs d'un événement
+// GET /api/scans/operators/event/:eventId - Obtenir les opérateurs d'un événement
 router.get('/operators/event/:eventId',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.operators.read'),
+  SecurityMiddleware.withPermissions('scans.operators.read'),
+  ValidationMiddleware.validateParams({
+    eventId: Joi.string().required()
+  }),
   scansController.getEventScanOperators
 );
 
-// Routes de gestion des appareils de scan
-
-// POST /api/scans/devices/register - Enregistrer un appareil
+// POST /api/scans/devices/register - Enregistrer un appareil de scan
 router.post('/devices/register',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.devices.create'),
+  SecurityMiddleware.withPermissions('scans.devices.create'),
+  ValidationMiddleware.validate({
+    body: Joi.object({
+      deviceId: Joi.string().required(),
+      eventId: Joi.string().required(),
+      deviceType: Joi.string().valid('mobile', 'tablet', 'scanner', 'kiosk').required(),
+      location: Joi.string().required(),
+      capabilities: Joi.array().items(Joi.string()).required()
+    })
+  }),
   scansController.registerScanDevice
 );
 
-// GET /api/scans/devices/event/:eventId - Récupérer les appareils d'un événement
+// GET /api/scans/devices/event/:eventId - Obtenir les appareils d'un événement
 router.get('/devices/event/:eventId',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.devices.read'),
+  SecurityMiddleware.withPermissions('scans.devices.read'),
+  ValidationMiddleware.validateParams({
+    eventId: Joi.string().required()
+  }),
   scansController.getEventScanDevices
 );
-
-// Routes d'analyse anti-fraude
-
-// POST /api/scans/fraud/analyze - Analyser une activité suspecte
-router.post('/fraud/analyze',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.fraud.analyze'),
-  scansController.analyzeFraud
-);
-
-// GET /api/scans/fraud/stats - Statistiques de fraude
-router.get('/fraud/stats',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.fraud.read'),
-  scansController.getFraudStats
-);
-
-// Routes de statistiques détaillées
-
-// GET /api/scans/events/:eventId/stats/daily - Statistiques journalières
-router.get('/events/:eventId/stats/daily',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.stats.read'),
-  scansController.getEventDailyStats
-);
-
-// GET /api/scans/events/:eventId/stats/hourly - Statistiques horaires
-router.get('/events/:eventId/stats/hourly',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.stats.read'),
-  scansController.getEventHourlyStats
-);
-
-// GET /api/scans/events/:eventId/stats/locations - Statistiques par localisation
-router.get('/events/:eventId/stats/locations',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.stats.read'),
-  scansController.getEventLocationStats
-);
-
-// Routes de gestion des données offline
-
-// POST /api/scans/offline/sync - Synchroniser les données offline
-router.post('/offline/sync',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.offline.sync'),
-  scansController.syncOfflineData
-);
-
-// GET /api/scans/offline/data - Récupérer les données offline
-router.get('/offline/data',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.offline.read'),
-  scansController.getOfflineData
-);
-
-// POST /api/scans/offline/cleanup - Nettoyer les données expirées
-router.post('/offline/cleanup',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.offline.cleanup'),
-  scansController.cleanupExpiredData
-);
-
-// Routes de santé et statistiques
-
-// GET /api/scans/health - Vérifier la santé du service
-router.get('/health',
-  scansController.healthCheck
-);
-
-// GET /api/scans/stats - Récupérer les statistiques du service
-router.get('/stats',
-  authenticate,
-  injectUserContext,
-  requirePermission('scans.stats.read'),
-  scansController.getStats
-);
-
-// Routes de webhook pour les intégrations externes
-
-// POST /api/scans/webhooks/validate - Webhook de validation externe
-router.post('/webhooks/validate',
-  validateApiKey,
-  async (req, res) => {
-  try {
-    const { ticketData, scanContext, webhookId } = req.body;
-    
-    logger.webhook('External validation webhook received', {
-      webhookId,
-      ticketId: ticketData?.id,
-      hasScanContext: !!scanContext
-    });
-
-    // Valider le ticket en utilisant le service de validation
-    const validationResult = await validationService.validateTicket(
-      ticketData,
-      {
-        ...scanContext,
-        external: true,
-        webhookId,
-        timestamp: new Date().toISOString()
-      }
-    );
-
-    if (!validationResult.success) {
-      return res.status(400).json({
-        success: false,
-        error: validationResult.error,
-        code: validationResult.code,
-        webhookId
-      });
-    }
-
-    // Envoyer une réponse au webhook
-    if (req.body.responseUrl) {
-      try {
-        const axios = require('axios');
-        await axios.post(req.body.responseUrl, {
-          success: true,
-          validation: validationResult,
-          webhookId,
-          processedAt: new Date().toISOString()
-        });
-      } catch (error) {
-        logger.error('Failed to send webhook response', {
-          error: error.message,
-          responseUrl: req.body.responseUrl,
-          webhookId
-        });
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      validation: validationResult,
-      webhookId,
-      processedAt: new Date().toISOString()
-    });
-  } catch (error) {
-    logger.error('External validation webhook failed', {
-      error: error.message,
-      webhookId: req.body.webhookId
-    });
-
-    return res.status(500).json({
-      success: false,
-      error: 'Erreur lors du traitement du webhook de validation',
-      code: 'WEBHOOK_PROCESSING_FAILED'
-    });
-  }
-});
-
-// POST /api/scans/webhooks/validate-batch - Webhook de validation en lot
-router.post('/webhooks/validate-batch',
-  validateApiKey,
-  async (req, res) => {
-  try {
-    const { tickets, scanContext, webhookId } = req.body;
-    
-    if (!tickets || !Array.isArray(tickets)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Liste de tickets requise',
-        code: 'MISSING_TICKETS_LIST'
-      });
-    }
-
-    logger.webhook('External batch validation webhook received', {
-      webhookId,
-      ticketCount: tickets.length,
-      hasScanContext: !!scanContext
-    });
-
-    const results = [];
-    
-    for (const ticketData of tickets) {
-      try {
-        const validationResult = await validationService.validateTicket(
-          ticketData,
-          {
-            ...scanContext,
-            external: true,
-            webhookId,
-            timestamp: new Date().toISOString()
-          }
-        );
-
-        results.push({
-          ticketId: ticketData.id,
-          success: validationResult.success,
-          error: validationResult.success ? null : validationResult.error,
-          code: validationResult.success ? null : validationResult.code
-        });
-      } catch (error) {
-        logger.error('Failed to validate ticket in batch webhook', {
-          error: error.message,
-          ticketId: ticketData.id
-        });
-
-        results.push({
-          ticketId: ticketData.id,
-          success: false,
-          error: error.message,
-          code: 'BATCH_VALIDATION_ERROR'
-        });
-      }
-    }
-
-    const successCount = results.filter(r => r.success).length;
-    const failureCount = results.length - successCount;
-
-    // Envoyer une réponse au webhook
-    if (req.body.responseUrl) {
-      try {
-        const axios = require('axios');
-        await axios.post(req.body.responseUrl, {
-          success: true,
-          summary: {
-            total: results.length,
-            success: successCount,
-            failed: failureCount
-          },
-          results,
-          webhookId,
-          processedAt: new Date().toISOString()
-        });
-      } catch (error) {
-        logger.error('Failed to send batch webhook response', {
-          error: error.message,
-          responseUrl: req.body.responseUrl,
-          webhookId
-        });
-      }
-    }
-
-    return res.status(200).json({
-      success: successCount > 0,
-      summary: {
-        total: results.length,
-        success: successCount,
-        failed: failureCount
-      },
-      results,
-      webhookId
-    });
-  } catch (error) {
-    logger.error('External batch validation webhook failed', {
-      error: error.message,
-      webhookId: req.body.webhookId
-    });
-
-    return res.status(500).json({
-      success: false,
-      error: 'Erreur lors du traitement du webhook de validation en lot',
-      code: 'BATCH_WEBHOOK_PROCESSING_FAILED'
-    });
-  }
-});
-
-// POST /api/scans/webhooks/sync - Webhook de synchronisation
-router.post('/webhooks/sync',
-  validateApiKey,
-  async (req, res) => {
-  try {
-    const { syncType, data, webhookId } = req.body;
-    
-    logger.webhook('External sync webhook received', {
-      syncType,
-      webhookId,
-      hasData: !!data
-    });
-
-    let result;
-    
-    switch (syncType) {
-      case 'validate':
-        if (data.ticketId) {
-          result = await validationService.validateTicket(
-            data.ticketData,
-            {
-              external: true,
-              webhookId,
-              timestamp: new Date().toISOString()
-            }
-          );
-        }
-        break;
-      case 'store':
-        if (data.ticketData) {
-          result = await offlineService.storeTicketData(
-            data.ticketData,
-            {
-              external: true,
-              webhookId,
-              timestamp: new Date().toISOString()
-            }
-          );
-        }
-        break;
-      case 'sync':
-        result = await offlineService.syncOfflineData();
-        break;
-      default:
-        return res.status(400).json({
-          success: false,
-          error: `Type de synchronisation non supporté: ${syncType}`,
-          code: 'UNSUPPORTED_SYNC_TYPE'
-        });
-    }
-
-    // Envoyer une réponse au webhook
-    if (req.body.responseUrl) {
-      try {
-        const axios = require('axios');
-        await axios.post(req.body.responseUrl, {
-          success: result.success,
-          syncType,
-          data: result.data || null,
-          webhookId,
-          processedAt: new Date().toISOString()
-        });
-      } catch (error) {
-        logger.error('Failed to send sync webhook response', {
-          error: error.message,
-          responseUrl: req.body.responseUrl,
-          webhookId
-        });
-      }
-    }
-
-    return res.status(200).json({
-      success: result.success,
-      syncType,
-      data: result.data || null,
-      webhookId,
-      processedAt: new Date().toISOString()
-    });
-  } catch (error) {
-    logger.error('External sync webhook failed', {
-      error: error.message,
-      syncType: req.body.syncType,
-      webhookId: req.body.webhookId
-    });
-
-    return res.status(500).json({
-      success: false,
-      error: 'Erreur lors du traitement du webhook de synchronisation',
-      code: 'SYNC_WEBHOOK_PROCESSING_FAILED'
-    });
-  }
-});
-
-// POST /api/scans/webhooks/offline - Webhook pour les données offline
-router.post('/webhooks/offline',
-  validateApiKey,
-  async (req, res) => {
-  try {
-    const { action, data, webhookId } = req.body;
-    
-    logger.webhook('External offline webhook received', {
-      action,
-      webhookId,
-      hasData: !!data
-    });
-
-    let result;
-    
-    switch (action) {
-      case 'store':
-        if (data.ticketData) {
-          result = await offlineService.storeTicketData(
-            data.ticketData,
-            {
-              external: true,
-              webhookId,
-              timestamp: new Date().toISOString()
-            }
-          );
-        }
-        break;
-      case 'validate':
-        if (data.ticketId) {
-          result = await offlineService.validateTicketOffline(
-            data.ticketId,
-            {
-              external: true,
-              webhookId,
-              timestamp: new Date().toISOString()
-            }
-          );
-        }
-        break;
-      case 'sync':
-        result = await offlineService.syncOfflineData();
-        break;
-      case 'cleanup':
-        result = await offlineService.cleanupExpiredData();
-        break;
-      case 'backup':
-        result = await offlineService.backupOfflineData();
-        break;
-      default:
-        return res.status(400).json({
-          success: false,
-          error: `Action offline non supportée: ${action}`,
-          code: 'UNSUPPORTED_OFFLINE_ACTION'
-        });
-    }
-
-    // Envoyer une réponse au webhook
-    if (req.body.responseUrl) {
-      try {
-        const axios = require('axios');
-        await axios.post(req.body.responseUrl, {
-          success: result.success,
-          action,
-          data: result.data || null,
-          webhookId,
-          processedAt: new Date().toISOString()
-        });
-      } catch (error) {
-        logger.error('Failed to send offline webhook response', {
-          error: error.message,
-          responseUrl: req.body.responseUrl,
-          webhookId
-        });
-      }
-    }
-
-    return res.status(200).json({
-      success: result.success,
-      action,
-      data: result.data || null,
-      webhookId,
-      processedAt: new Date().toISOString()
-    });
-  } catch (error) {
-    logger.error('External offline webhook failed', {
-      error: error.message,
-      action: req.body.action,
-      webhookId: req.body.webhookId
-    });
-
-    return res.status(500).json({
-      success: false,
-      error: 'Erreur lors du traitement du webhook offline',
-      code: 'OFFLINE_WEBHOOK_PROCESSING_FAILED'
-    });
-  }
-});
 
 module.exports = router;
