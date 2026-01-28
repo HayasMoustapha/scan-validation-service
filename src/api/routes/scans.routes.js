@@ -140,19 +140,12 @@ router.post('/fraud/analyze',
 // GET /api/scans/fraud/stats - Obtenir les statistiques de fraude
 router.get('/fraud/stats',
   SecurityMiddleware.withPermissions('scans.fraud.stats'),
-  ValidationMiddleware.validateQuery({
-    eventId: Joi.string().optional(),
-    period: Joi.string().valid('1h', '24h', '7d', '30d').default('24h')
-  }),
   scansController.getFraudStats
 );
 
 // GET /api/scans/history/ticket/:ticketId - Obtenir l'historique des scans d'un ticket
 router.get('/history/ticket/:ticketId',
   SecurityMiddleware.withPermissions('scans.history.read'),
-  ValidationMiddleware.validateParams({
-    ticketId: Joi.string().required()
-  }),
   scansController.getTicketScanHistory
 );
 
@@ -178,9 +171,6 @@ router.post('/sync',
 // GET /api/scans/offline/data - Obtenir les données offline
 router.get('/offline/data',
   SecurityMiddleware.withPermissions('scans.offline.read'),
-  ValidationMiddleware.validateQuery({
-    ticketId: Joi.string().optional()
-  }),
   scansController.getOfflineData
 );
 
@@ -212,18 +202,12 @@ router.post('/sessions/end',
 // GET /api/scans/sessions/active - Obtenir les sessions actives
 router.get('/sessions/active',
   SecurityMiddleware.withPermissions('scans.sessions.read'),
-  ValidationMiddleware.validateQuery({
-    eventId: Joi.string().optional()
-  }),
   scansController.getActiveScanSessions
 );
 
 // GET /api/scans/sessions/:sessionId - Obtenir une session de scan
 router.get('/sessions/:sessionId',
   SecurityMiddleware.withPermissions('scans.sessions.read'),
-  ValidationMiddleware.validateParams({
-    sessionId: Joi.string().required()
-  }),
   scansController.getScanSession
 );
 
@@ -244,9 +228,6 @@ router.post('/operators/register',
 // GET /api/scans/operators/event/:eventId - Obtenir les opérateurs d'un événement
 router.get('/operators/event/:eventId',
   SecurityMiddleware.withPermissions('scans.operators.read'),
-  ValidationMiddleware.validateParams({
-    eventId: Joi.string().required()
-  }),
   scansController.getEventScanOperators
 );
 
@@ -268,9 +249,6 @@ router.post('/devices/register',
 // GET /api/scans/devices/event/:eventId - Obtenir les appareils d'un événement
 router.get('/devices/event/:eventId',
   SecurityMiddleware.withPermissions('scans.devices.read'),
-  ValidationMiddleware.validateParams({
-    eventId: Joi.string().required()
-  }),
   scansController.getEventScanDevices
 );
 
