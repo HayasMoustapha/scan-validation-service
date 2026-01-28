@@ -1,7 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
 const scansController = require('../controllers/scans.controller');
-const ValidationMiddleware = require('../../../../shared/middleware/validation.middleware');
+const ValidationMiddleware = require('../../../../shared');
 
 const router = express.Router();
 

@@ -149,9 +149,6 @@ class ScanValidationServer {
    * Configure les routes
    */
   setupRoutes() {
-    // Middleware d'authentification robuste pour les routes protégées
-    const RobustAuthMiddleware = require('../../shared/middlewares/robust-auth-middleware');
-    
     // Route racine
     this.app.get('/', (req, res) => {
       res.json({
@@ -163,8 +160,6 @@ class ScanValidationServer {
           validation: true,
           qrCode: true,
           offline: true,
-          webhooks: true,
-          batch: true,
           statistics: true
         }
       });
@@ -173,8 +168,7 @@ class ScanValidationServer {
     // Routes de santé (publiques)
     this.app.use('/health', healthRoutes);
 
-    // Routes API protégées
-    this.app.use('/api', RobustAuthMiddleware.authenticate());
+    // Routes API (sans authentification)
     this.app.use('/api/scans', scansRoutes);
 
     // Route API racine
