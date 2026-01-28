@@ -1,213 +1,513 @@
 const crypto = require('crypto');
+const qrDecoderService = require('../qr/qr-decoder.service');
+const eventCoreClient = require('../clients/event-core.client');
 const logger = require('../../utils/logger');
 
 /**
- * Service de validation des QR codes
+ * Service de validation des tickets
+ * Orchestre le décodage QR, la validation cryptographique et la validation métier via event-planner-core
  */
 class ValidationService {
   constructor() {
-    this.secretKey = process.env.QR_CODE_SECRET_KEY || 'default-secret';
-    this.nonceExpiry = parseInt(process.env.QR_CODE_NONCE_EXPIRY) || 300;
-    this.signatureExpiry = parseInt(process.env.QR_CODE_SIGNATURE_EXPIRY) || 3600;
-    this.maxScansPerTicket = parseInt(process.env.QR_CODE_MAX_SCANS_PER_TICKET) || 5;
+    // Configuration de la validation
+    this.maxConcurrentScans = parseInt(process.env.MAX_CONCURRENT_SCANS) || 100;
+    this.scanTimeout = parseInt(process.env.SCAN_TIMEOUT) || 15000; // 15s
+    this.enableFraudDetection = process.env.ENABLE_FRAUD_DETECTION === 'true';
+    
+    // Cache pour les validations en cours (prévention des scans concurrents)
+    this.pendingScans = new Map();
+    
+    // Statistiques
+    this.stats = {
+      totalScans: 0,
+      successfulScans: 0,
+      failedScans: 0,
+      fraudAttempts: 0,
+      concurrentScansBlocked: 0
+    };
   }
 
-  async validateTicket(qrCodeData, scanContext = {}) {
+  /**
+   * Point d'entrée principal pour la validation d'un ticket
+   * Orchestre toutes les étapes de validation
+   * @param {string} qrCode - QR code scanné
+   * @param {Object} scanContext - Contexte du scan
+   * @returns {Promise<Object>} Résultat complet de la validation
+   */
+  async validateTicket(qrCode, scanContext = {}) {
+    const validationId = crypto.randomUUID();
+    const startTime = Date.now();
+
     try {
-      let ticketData;
+      this.stats.totalScans++;
+
+      logger.validation('Starting ticket validation', {
+        validationId,
+        hasQRCode: !!qrCode,
+        scanLocation: scanContext.location,
+        deviceId: scanContext.deviceId
+      });
+
+      // Étape 1: Validation des entrées
+      const inputValidation = this.validateInputs(qrCode, scanContext);
+      if (!inputValidation.valid) {
+        this.stats.failedScans++;
+        return {
+          success: false,
+          error: inputValidation.error,
+          code: inputValidation.code,
+          validationId,
+          validationTime: Date.now() - startTime
+        };
+      }
+
+      // Étape 2: Prévention des scans concurrents
+      const concurrencyCheck = this.checkConcurrentScans(qrCode);
+      if (!concurrencyCheck.allowed) {
+        this.stats.concurrentScansBlocked++;
+        return {
+          success: false,
+          error: 'Scan déjà en cours pour ce ticket',
+          code: 'CONCURRENT_SCAN_DETECTED',
+          validationId,
+          validationTime: Date.now() - startTime,
+          fraudFlags: {
+            type: 'CONCURRENT_SCAN_ATTEMPT',
+            severity: 'MEDIUM',
+            details: { sameQRCode: true }
+          }
+        };
+      }
+
+      // Marquer le scan comme en cours
+      this.pendingScans.set(qrCode, {
+        validationId,
+        startTime,
+        scanContext
+      });
+
       try {
-        ticketData = JSON.parse(qrCodeData);
-      } catch (error) {
-        return { success: false, error: 'Format QR invalide', code: 'INVALID_QR_FORMAT' };
+        // Étape 3: Décodage et validation cryptographique du QR code
+        const qrValidation = await qrDecoderService.decodeAndValidateQR(qrCode);
+        if (!qrValidation.success) {
+          this.stats.failedScans++;
+          if (qrValidation.fraudFlags) {
+            this.stats.fraudAttempts++;
+          }
+
+          return {
+            success: false,
+            error: qrValidation.error,
+            code: qrValidation.code,
+            validationId,
+            validationTime: Date.now() - startTime,
+            fraudFlags: qrValidation.fraudFlags
+          };
+        }
+
+        // Étape 4: Validation métier via event-planner-core
+        const businessValidation = await eventCoreClient.validateTicket(
+          qrValidation.data,
+          scanContext
+        );
+
+        if (!businessValidation.success) {
+          this.stats.failedScans++;
+
+          // Mapper les codes d'erreur du service core vers les codes de validation
+          const mappedCode = this.mapCoreErrorToValidationCode(businessValidation.code);
+
+          return {
+            success: false,
+            error: businessValidation.error,
+            code: mappedCode,
+            validationId,
+            validationTime: Date.now() - startTime,
+            coreResponse: businessValidation.details
+          };
+        }
+
+        // Étape 5: Enregistrement du scan (non bloquant)
+        const scanRecord = {
+          validationId,
+          ticketId: qrValidation.data.ticketId,
+          eventId: qrValidation.data.eventId,
+          result: 'VALID',
+          scanContext,
+          qrMetadata: qrValidation.validationInfo,
+          businessValidation: businessValidation.data,
+          timestamp: new Date().toISOString(),
+          validationTime: Date.now() - startTime
+        };
+
+        // Enregistrer le scan de manière asynchrone (non bloquant)
+        this.recordScanAsync(scanRecord);
+
+        this.stats.successfulScans++;
+
+        logger.validation('Ticket validation completed successfully', {
+          validationId,
+          ticketId: qrValidation.data.ticketId,
+          eventId: qrValidation.data.eventId,
+          validationTime: Date.now() - startTime
+        });
+
+        return {
+          success: true,
+          validationId,
+          ticket: {
+            id: qrValidation.data.ticketId,
+            eventId: qrValidation.data.eventId,
+            ticketType: qrValidation.data.ticketType,
+            status: 'VALID',
+            scannedAt: new Date().toISOString()
+          },
+          event: businessValidation.data.event,
+          scanInfo: {
+            scanId: validationId,
+            timestamp: new Date().toISOString(),
+            location: scanContext.location,
+            deviceId: scanContext.deviceId
+          },
+          validationTime: Date.now() - startTime,
+          metadata: {
+            qrValidation: qrValidation.validationInfo,
+            businessValidation: businessValidation.metadata
+          }
+        };
+
+      } finally {
+        // Nettoyer le scan en cours
+        this.pendingScans.delete(qrCode);
       }
 
-      const structureValidation = this.validateTicketStructure(ticketData);
-      if (!structureValidation.valid) {
-        return { success: false, error: structureValidation.error, code: 'INVALID_TICKET_STRUCTURE' };
-      }
+    } catch (error) {
+      this.stats.failedScans++;
+      this.pendingScans.delete(qrCode);
 
-      const signatureValidation = await this.verifySignature(ticketData);
-      if (!signatureValidation.valid) {
-        return { success: false, error: signatureValidation.error, code: 'INVALID_SIGNATURE' };
-      }
+      logger.error('Ticket validation failed', {
+        validationId,
+        error: error.message,
+        stack: error.stack
+      });
 
-      const nonceValidation = await this.validateNonce(ticketData.nonce);
-      if (!nonceValidation.valid) {
-        return { success: false, error: nonceValidation.error, code: 'INVALID_NONCE' };
-      }
+      return {
+        success: false,
+        error: 'Erreur lors de la validation du ticket',
+        code: 'VALIDATION_ERROR',
+        validationId,
+        validationTime: Date.now() - startTime,
+        technicalDetails: error.message
+      };
+    }
+  }
 
-      const expirationValidation = this.validateExpiration(ticketData);
-      if (!expirationValidation.valid) {
-        return { success: false, error: expirationValidation.error, code: 'TICKET_EXPIRED' };
-      }
+  /**
+   * Valide les entrées de la requête
+   * @param {string} qrCode - QR code à valider
+   * @param {Object} scanContext - Contexte du scan
+   * @returns {Object} Résultat de la validation
+   */
+  validateInputs(qrCode, scanContext) {
+    if (!qrCode || typeof qrCode !== 'string') {
+      return {
+        valid: false,
+        error: 'QR code requis et doit être une chaîne de caractères',
+        code: 'MISSING_OR_INVALID_QR_CODE'
+      };
+    }
 
-      const eventValidation = await this.validateEvent(ticketData.eventId);
-      if (!eventValidation.valid) {
-        return { success: false, error: eventValidation.error, code: 'INVALID_EVENT' };
-      }
+    if (qrCode.length > 10000) { // 10KB max
+      return {
+        valid: false,
+        error: 'QR code trop volumineux',
+        code: 'QR_CODE_TOO_LARGE'
+      };
+    }
 
-      const statusValidation = await this.validateTicketStatus(ticketData.id);
-      if (!statusValidation.valid) {
-        return { success: false, error: statusValidation.error, code: statusValidation.code };
-      }
+    if (!scanContext || typeof scanContext !== 'object') {
+      return {
+        valid: false,
+        error: 'Contexte de scan invalide',
+        code: 'INVALID_SCAN_CONTEXT'
+      };
+    }
 
-      await this.recordScan(ticketData, scanContext);
+    return { valid: true };
+  }
+
+  /**
+   * Vérifie les scans concurrents pour le même QR code
+   * @param {string} qrCode - QR code à vérifier
+   * @returns {Object} Résultat de la vérification
+   */
+  checkConcurrentScans(qrCode) {
+    const pendingScan = this.pendingScans.get(qrCode);
+    
+    if (pendingScan) {
+      const timeSinceStart = Date.now() - pendingScan.startTime;
+      
+      // Si le scan est en cours depuis moins de 15 secondes, le bloquer
+      if (timeSinceStart < this.scanTimeout) {
+        return {
+          allowed: false,
+          reason: 'Scan déjà en cours',
+          pendingScanTime: timeSinceStart
+        };
+      } else {
+        // Nettoyer les scans expirés
+        this.pendingScans.delete(qrCode);
+      }
+    }
+
+    // Vérifier le nombre total de scans concurrents
+    if (this.pendingScans.size >= this.maxConcurrentScans) {
+      return {
+        allowed: false,
+        reason: 'Trop de scans concurrents',
+        concurrentCount: this.pendingScans.size
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  /**
+   * Mappe les codes d'erreur du service core vers les codes de validation standardisés
+   * @param {string} coreErrorCode - Code d'erreur du service core
+   * @returns {string} Code de validation standardisé
+   */
+  mapCoreErrorToValidationCode(coreErrorCode) {
+    const errorMapping = {
+      'TICKET_NOT_FOUND': 'INVALID',
+      'TICKET_ALREADY_USED': 'ALREADY_USED',
+      'TICKET_EXPIRED': 'EXPIRED',
+      'TICKET_NOT_ACTIVE': 'INVALID',
+      'EVENT_NOT_FOUND': 'NOT_AUTHORIZED',
+      'EVENT_NOT_ACTIVE': 'EVENT_CLOSED',
+      'EVENT_NOT_STARTED': 'NOT_AUTHORIZED',
+      'EVENT_ENDED': 'EVENT_CLOSED',
+      'USER_NOT_AUTHORIZED': 'NOT_AUTHORIZED',
+      'INVALID_ACCESS_RULES': 'NOT_AUTHORIZED',
+      'ZONE_ACCESS_DENIED': 'NOT_AUTHORIZED',
+      'TIME_ACCESS_DENIED': 'NOT_AUTHORIZED',
+      'VALIDATION_ERROR': 'INVALID',
+      'INTERNAL_ERROR': 'INVALID',
+      'SERVICE_UNAVAILABLE': 'INVALID'
+    };
+
+    return errorMapping[coreErrorCode] || 'INVALID';
+  }
+
+  /**
+   * Enregistre un scan de manière asynchrone (non bloquant)
+   * @param {Object} scanRecord - Données du scan à enregistrer
+   */
+  async recordScanAsync(scanRecord) {
+    try {
+      // Utiliser setImmediate pour exécuter après la réponse
+      setImmediate(async () => {
+        try {
+          await eventCoreClient.recordScan(scanRecord);
+          logger.validation('Scan recorded successfully', {
+            validationId: scanRecord.validationId,
+            ticketId: scanRecord.ticketId
+          });
+        } catch (error) {
+          logger.error('Failed to record scan (non-blocking)', {
+            validationId: scanRecord.validationId,
+            ticketId: scanRecord.ticketId,
+            error: error.message
+          });
+        }
+      });
+    } catch (error) {
+      logger.error('Failed to schedule async scan recording', {
+        validationId: scanRecord.validationId,
+        error: error.message
+      });
+    }
+  }
+
+  /**
+   * Génère un rapport de validation pour un événement
+   * @param {string} eventId - ID de l'événement
+   * @param {string} startDate - Date de début
+   * @param {string} endDate - Date de fin
+   * @returns {Promise<Object>} Rapport de validation
+   */
+  async generateValidationReport(eventId, startDate, endDate) {
+    try {
+      logger.validation('Generating validation report', {
+        eventId,
+        startDate,
+        endDate
+      });
+
+      // Pour l'instant, retourner les statistiques locales
+      // Dans une implémentation complète, cela interrogerait la base de données
+      return {
+        eventId,
+        period: { startDate, endDate },
+        summary: {
+          totalScans: this.stats.totalScans,
+          successfulScans: this.stats.successfulScans,
+          failedScans: this.stats.failedScans,
+          fraudAttempts: this.stats.fraudAttempts,
+          successRate: this.stats.totalScans > 0 
+            ? (this.stats.successfulScans / this.stats.totalScans * 100).toFixed(2) + '%'
+            : '0%'
+        },
+        stats: this.stats
+      };
+    } catch (error) {
+      logger.error('Failed to generate validation report', {
+        eventId,
+        error: error.message
+      });
+
+      throw new Error('Échec de la génération du rapport de validation');
+    }
+  }
+
+  /**
+   * Récupère l'historique des scans pour un ticket
+   * @param {string} ticketId - ID du ticket
+   * @returns {Promise<Object>} Historique des scans
+   */
+  async getTicketScanHistory(ticketId) {
+    try {
+      logger.validation('Retrieving ticket scan history', { ticketId });
+
+      // Pour l'instant, retourner un historique simulé
+      // Dans une implémentation complète, cela interrogerait la base de données
+      return {
+        ticketId,
+        scans: [],
+        totalScans: 0,
+        lastScan: null
+      };
+    } catch (error) {
+      logger.error('Failed to get ticket scan history', {
+        ticketId,
+        error: error.message
+      });
+
+      throw new Error('Échec de la récupération de l\'historique des scans');
+    }
+  }
+
+  /**
+   * Récupère les statistiques de scan pour un événement
+   * @param {string} eventId - ID de l'événement
+   * @param {Object} options - Options de filtrage
+   * @returns {Promise<Object>} Statistiques de scan
+   */
+  async getEventScanStats(eventId, options = {}) {
+    try {
+      logger.validation('Retrieving event scan statistics', {
+        eventId,
+        options
+      });
+
+      // Pour l'instant, retourner les statistiques locales
+      // Dans une implémentation complète, cela interrogerait la base de données
+      return {
+        eventId,
+        totalScans: this.stats.totalScans,
+        uniqueTickets: this.stats.successfulScans,
+        scanRate: 0,
+        peakHours: [],
+        averageScansPerHour: 0,
+        period: options,
+        stats: this.stats
+      };
+    } catch (error) {
+      logger.error('Failed to get event scan stats', {
+        eventId,
+        error: error.message
+      });
+
+      throw new Error('Échec de la récupération des statistiques de scan');
+    }
+  }
+
+  /**
+   * Vérifie l'état de santé du service de validation
+   * @returns {Promise<Object>} État de santé
+   */
+  async healthCheck() {
+    try {
+      const [qrDecoderHealth, eventCoreHealth] = await Promise.all([
+        qrDecoderService.healthCheck(),
+        eventCoreClient.healthCheck()
+      ]);
+
+      const overallHealthy = qrDecoderHealth.healthy && eventCoreHealth.healthy;
 
       return {
         success: true,
-        ticket: {
-          id: ticketData.id,
-          eventId: ticketData.eventId,
-          ticketType: ticketData.type,
-          status: 'valid',
-          scannedAt: new Date().toISOString()
+        healthy: overallHealthy,
+        components: {
+          qrDecoder: qrDecoderHealth,
+          eventCore: eventCoreHealth,
+          validation: {
+            pendingScans: this.pendingScans.size,
+            maxConcurrentScans: this.maxConcurrentScans,
+            scanTimeout: this.scanTimeout
+          }
         },
-        event: eventValidation.event,
-        scanInfo: {
-          scanId: crypto.randomUUID(),
-          timestamp: new Date().toISOString(),
-          location: scanContext.location
+        stats: this.stats,
+        config: {
+          maxConcurrentScans: this.maxConcurrentScans,
+          scanTimeout: this.scanTimeout,
+          enableFraudDetection: this.enableFraudDetection
         }
       };
     } catch (error) {
-      logger.error('Validation failed', { error: error.message });
-      return { success: false, error: 'Erreur validation', code: 'VALIDATION_ERROR' };
+      logger.error('Validation service health check failed', {
+        error: error.message
+      });
+
+      return {
+        success: false,
+        healthy: false,
+        error: error.message
+      };
     }
   }
 
-  validateTicketStructure(ticketData) {
-    const requiredFields = ['id', 'eventId', 'type', 'nonce', 'signature', 'createdAt', 'expiresAt'];
-    
-    for (const field of requiredFields) {
-      if (!ticketData[field]) {
-        return { valid: false, error: `Champ manquant: ${field}` };
-      }
-    }
-
-    const validTypes = ['standard', 'vip', 'premium', 'early-bird', 'student'];
-    if (!validTypes.includes(ticketData.type)) {
-      return { valid: false, error: `Type invalide: ${ticketData.type}` };
-    }
-
-    return { valid: true };
-  }
-
-  async verifySignature(ticketData) {
-    try {
-      const { signature, ...dataToVerify } = ticketData;
-      const signatureString = this.createSignatureString(dataToVerify);
-      
-      const expectedSignature = crypto
-        .createHmac('sha256', this.secretKey)
-        .update(signatureString)
-        .digest('hex');
-
-      const isValid = crypto.timingSafeEqual(
-        Buffer.from(signature, 'hex'),
-        Buffer.from(expectedSignature, 'hex')
-      );
-
-      return { valid: isValid, error: isValid ? null : 'Signature invalide' };
-    } catch (error) {
-      return { valid: false, error: 'Erreur vérification signature' };
-    }
-  }
-
-  createSignatureString(data) {
-    return `${data.id}|${data.eventId}|${data.type}|${data.nonce}|${data.createdAt}|${data.expiresAt}`;
-  }
-
-  async validateNonce(nonce) {
-    // Placeholder pour validation Redis
-    return { valid: true };
-  }
-
-  validateExpiration(ticketData) {
-    const now = Date.now();
-    const expiresAt = new Date(ticketData.expiresAt).getTime();
-    
-    if (now > expiresAt) {
-      return { valid: false, error: 'Ticket expiré' };
-    }
-    
-    return { valid: true };
-  }
-
-  async validateEvent(eventId) {
-    // Placeholder pour validation événement
-    return { 
-      valid: true, 
-      event: {
-        id: eventId,
-        title: 'Test Event',
-        status: 'active'
-      }
-    };
-  }
-
-  async validateTicketStatus(ticketId) {
-    // Placeholder pour validation statut
-    return { valid: true };
-  }
-
-  async recordScan(ticketData, scanContext) {
-    logger.validation('Scan recorded', {
-      ticketId: ticketData.id,
-      eventId: ticketData.eventId,
-      location: scanContext.location
-    });
-  }
-
-  async generateValidationReport(eventId, startDate, endDate) {
-    return {
-      totalScans: 0,
-      uniqueTickets: 0,
-      scanFrequency: {},
-      topLocations: [],
-      timeDistribution: {}
-    };
-  }
-
-  async getTicketScanHistory(ticketId) {
-    return {
-      ticketId,
-      scans: [],
-      totalScans: 0,
-      lastScan: null
-    };
-  }
-
-  async getEventScanStats(eventId) {
-    return {
-      eventId,
-      totalScans: 0,
-      uniqueTickets: 0,
-      scanRate: 0,
-      peakHours: [],
-      averageScansPerHour: 0
-    };
-  }
-
-  async healthCheck() {
-    return {
-      success: true,
-      healthy: true,
-      config: {
-        nonceExpiry: this.nonceExpiry,
-        signatureExpiry: this.signatureExpiry,
-        maxScansPerTicket: this.maxScansPerTicket
-      }
-    };
-  }
-
+  /**
+   * Retourne les statistiques du service de validation
+   * @returns {Object} Statistiques
+   */
   getStats() {
     return {
+      stats: this.stats,
       config: {
-        nonceExpiry: this.nonceExpiry,
-        signatureExpiry: this.signatureExpiry,
-        maxScansPerTicket: this.maxScansPerTicket
+        maxConcurrentScans: this.maxConcurrentScans,
+        scanTimeout: this.scanTimeout,
+        enableFraudDetection: this.enableFraudDetection
+      },
+      current: {
+        pendingScans: this.pendingScans.size
       }
     };
+  }
+
+  /**
+   * Réinitialise les statistiques (pour les tests ou maintenance)
+   */
+  resetStats() {
+    this.stats = {
+      totalScans: 0,
+      successfulScans: 0,
+      failedScans: 0,
+      fraudAttempts: 0,
+      concurrentScansBlocked: 0
+    };
+
+    logger.info('Validation service stats reset');
   }
 }
 

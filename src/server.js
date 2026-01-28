@@ -9,10 +9,6 @@ const mongoSanitize = require('express-mongo-sanitize');
 const morgan = require('morgan');
 const rawBody = require('raw-body');
 
-// CONFIGURATION JWT UNIFIÉ - ÉTAPE CRUCIALE
-const UnifiedJWTSecret = require('../../shared/config/unified-jwt-secret');
-UnifiedJWTSecret.configureService('scan-validation-service');
-
 const logger = require('./utils/logger');
 const healthRoutes = require('./health/health.routes');
 const scansRoutes = require('./api/routes/scans.routes');
