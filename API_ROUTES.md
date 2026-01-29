@@ -2,7 +2,9 @@
 
 ## Overview
 
-This document provides a comprehensive overview of all available API routes in the Scan Validation Service. The service runs on port **3005** and provides complete ticket validation functionality with real-time and offline scanning, QR code generation, fraud detection, session management, and device tracking.
+This document provides a comprehensive overview of all available API routes in the Scan Validation Service. The service runs on port **3005** and provides **technical ticket validation functionality** with real-time and offline scanning, fraud detection, and scan history tracking.
+
+**⚠️ IMPORTANT**: This is a **technical service only**. It handles QR code validation and scan logging without business logic or user management. All business operations are delegated to `event-planner-core`.
 
 ## Base URL
 
@@ -10,13 +12,21 @@ This document provides a comprehensive overview of all available API routes in t
 http://localhost:3005/api
 ```
 
-## Authentication
+## Service Architecture
 
-All routes (except health endpoints) require JWT authentication. Include the token in the Authorization header:
+### Scan Validation Service Responsibilities ✅
+- **QR Code Validation**: Technical QR code validation
+- **Fraud Detection**: Duplicate scan detection
+- **Offline Mode**: Offline validation with sync
+- **Scan History**: Technical scan logging
+- **Statistics**: Basic scan statistics
 
-```
-Authorization: Bearer <your_jwt_token>
-```
+### Delegated to Other Services 🔄
+- **QR Code Generation**: `ticket-generator-service` (port 3004)
+- **User Management**: `event-planner-auth` (port 3000)
+- **Business Logic**: `event-planner-core` (port 3001)
+- **Operator Management**: `event-planner-core` (port 3001)
+- **Device Management**: `event-planner-core` (port 3001)
 
 ## Modules
 
@@ -33,205 +43,101 @@ Authorization: Bearer <your_jwt_token>
   "scanContext": {
     "location": "Main Entrance",
     "deviceId": "scanner_001",
-    "checkpointId": "checkpoint_main",
-    "timestamp": "2026-01-27T09:30:00Z"
+    "operatorId": "operator_123"
   }
 }
 ```
+
+**Note**: Only technical scan context. No user authentication required.
 
 #### Request Body (Offline Validation)
 ```json
 {
-  "qrCode": "QR_CODE_DATA_HERE",
+  "ticketId": "ticket-1234567890abcdef",
   "scanContext": {
     "location": "Main Entrance",
     "deviceId": "scanner_001",
-    "checkpointId": "checkpoint_main",
-    "timestamp": "2026-01-27T09:30:00Z",
+    "operatorId": "operator_123",
     "offlineMode": true
-  },
-  "offlineData": {
-    "cachedTickets": [],
-    "lastSync": "2026-01-27T08:00:00Z"
   }
 }
 ```
 
----
-
-### 2. QR Code Management Module
-
-#### QR Code Operations
-- `POST /api/scans/qr/generate` - Generate QR code for a ticket
-- `POST /api/scans/qr/batch` - Generate QR codes in batch
-- `POST /api/scans/qr/test` - Generate a test QR code
-
-#### Request Body (Generate QR Code)
-```json
-{
-  "ticketId": "ticket-1234567890abcdef",
-  "eventId": "event-1234567890abcdef",
-  "ticketType": "standard",
-  "format": "base64",
-  "size": "medium"
-}
-```
-
-#### Request Body (Batch Generation)
-```json
-{
-  "tickets": [
-    {
-      "ticketId": "ticket-1234567890abcdef_1",
-      "eventId": "event-1234567890abcdef",
-      "ticketType": "standard"
-    }
-  ],
-  "format": "base64",
-  "size": "medium"
-}
-```
+**Note**: Technical offline validation without user context.
 
 ---
 
-### 3. Statistics & Analytics Module
-
-#### Statistics Operations
-- `GET /api/scans/stats` - Get scan statistics
-- `POST /api/scans/fraud/analyze` - Analyze fraud detection patterns
-- `GET /api/scans/fraud/stats` - Get fraud detection statistics
-
-#### Query Parameters (Scan Statistics)
-- `eventId` - Filter by event ID (optional)
-- `period` - Period: hour, day, week, month
-
-#### Request Body (Fraud Analysis)
-```json
-{
-  "scanData": {
-    "ticketId": "ticket-1234567890abcdef",
-    "scanCount": 5,
-    "timeBetweenScans": 300,
-    "locations": ["Main Entrance", "Side Entrance"],
-    "devices": ["scanner_001", "scanner_002"]
-  },
-  "context": {
-    "eventId": "event-1234567890abcdef",
-    "currentTime": "2026-01-27T10:00:00Z"
-  }
-}
-```
-
----
-
-### 4. History & Sync Module
+### 2. Scan History Module
 
 #### History Operations
 - `GET /api/scans/history/ticket/:ticketId` - Get scan history for a specific ticket
-- `POST /api/scans/sync` - Synchronize offline scan data
-- `GET /api/scans/offline/data` - Get offline data for synchronization
 
 #### Query Parameters (Ticket History)
-- `limit` - Maximum number of records to return
+- `limit` - Maximum number of records to return (default: 50, max: 100)
+- `offset` - Number of records to skip (default: 0)
 
-#### Request Body (Sync Data)
-```json
-{
-  "deviceId": "scanner_001",
-  "offlineScans": [
-    {
-      "ticketId": "ticket-1234567890abcdef",
-      "scanTime": "2026-01-27T09:30:00Z",
-      "location": "Main Entrance",
-      "status": "valid"
-    }
-  ],
-  "lastSyncTime": "2026-01-27T08:00:00Z"
-}
-```
+**Note**: Technical scan history without user context.
 
 ---
 
-### 5. Session Management Module
+### 3. Statistics Module
 
-#### Session Operations
-- `POST /api/scans/sessions/start` - Start a scan session
-- `POST /api/scans/sessions/end` - End a scan session
-- `GET /api/scans/sessions/active` - Get active scan sessions
-- `GET /api/scans/sessions/:sessionId` - Get scan session details
+#### Statistics Operations
+- `GET /api/scans/stats` - Get general scan statistics
+- `GET /api/scans/stats/event/:eventId` - Get scan statistics for an event
 
-#### Request Body (Start Session)
-```json
-{
-  "eventId": "event-1234567890abcdef",
-  "operatorId": "operator-1234567890abcdef",
-  "deviceId": "scanner_001",
-  "location": "Main Entrance",
-  "checkpointId": "checkpoint_main"
-}
-```
+#### Query Parameters (Event Statistics)
+- `startDate` - Filter by start date (optional)
+- `endDate` - Filter by end date (optional)
 
-#### Request Body (End Session)
-```json
-{
-  "sessionId": "session-1234567890abcdef",
-  "endTime": "2026-01-27T18:00:00Z",
-  "summary": {
-    "totalScans": 150,
-    "validScans": 145,
-    "invalidScans": 5
-  }
-}
-```
+**Note**: Basic technical statistics only. No business analytics.
 
 ---
 
-### 6. Operator Management Module
-
-#### Operator Operations
-- `POST /api/scans/operators/register` - Register a scan operator
-- `GET /api/scans/operators/event/:eventId` - Get operators for an event
-
-#### Request Body (Register Operator)
-```json
-{
-  "operatorId": "operator-1234567890abcdef",
-  "name": "John Doe",
-  "email": "john.doe@example.com",
-  "phone": "+33612345678",
-  "eventId": "event-1234567890abcdef",
-  "permissions": ["scans.validate", "scans.stats.read"]
-}
-```
-
----
-
-### 7. Device Management Module
-
-#### Device Operations
-- `POST /api/scans/devices/register` - Register a scan device
-- `GET /api/scans/devices/event/:eventId` - Get devices for an event
-
-#### Request Body (Register Device)
-```json
-{
-  "deviceId": "scanner_001",
-  "name": "Main Entrance Scanner",
-  "type": "handheld",
-  "model": "Zebra MC33",
-  "eventId": "event-1234567890abcdef",
-  "location": "Main Entrance",
-  "capabilities": ["qr_scan", "nfc_read"]
-}
-```
-
----
-
-### 8. Health & Monitoring Module
+### 4. Health & Monitoring Module
 
 #### Health Operations
 - `GET /health` - Basic health check (no authentication required)
-- `GET /api/system/status` - Get system status and performance metrics
+- `GET /api/scans/health` - Service health check
+
+---
+
+## 🎯 Service Communication
+
+### Input Data (Technical Only)
+- **QR Validation**: QR code data + scan context
+- **Offline Validation**: Ticket ID + scan context
+- **History Queries**: Technical filters (limit, offset)
+
+### Output Data (Validation Results)
+- **Validation Status**: Valid/Invalid with technical reasons
+- **Scan History**: Technical scan records
+- **Statistics**: Basic counts and metrics
+
+### No Business Logic
+- ❌ No user authentication
+- ❌ No permission checking
+- ❌ No business validation
+- ❌ No user context storage
+
+---
+
+## ❌ DELEGATED OPERATIONS
+
+### QR Code Generation (Not Available)
+**QR code generation is handled by `ticket-generator-service` (port 3004)**
+- `POST /api/tickets/qr/generate` - Generate QR code
+- `POST /api/tickets/batch` - Batch generation
+
+### User/Operator Management (Not Available)
+**User and operator management is handled by `event-planner-core` (port 3001)**
+- User registration and authentication
+- Operator permissions and roles
+
+### Device Management (Not Available)
+**Device management is handled by `event-planner-core` (port 3001)**
+- Device registration and tracking
+- Device assignment to operators
 
 ---
 
@@ -246,8 +152,7 @@ Authorization: Bearer <your_jwt_token>
     "eventId": "event-1234567890abcdef",
     "valid": true,
     "scanTime": "2026-01-27T09:30:00Z",
-    "location": "Main Entrance",
-    "operatorId": "operator-1234567890abcdef"
+    "location": "Main Entrance"
   },
   "message": "Ticket validated successfully"
 }
@@ -268,42 +173,27 @@ Authorization: Bearer <your_jwt_token>
 }
 ```
 
-## QR Code Formats
+---
 
-- `base64` - Base64 encoded image data
-- `svg` - SVG vector format
-- `png` - PNG image data
-- `jpg` - JPEG image data
+## Fraud Detection
 
-## QR Code Sizes
-
-- `small` - 128x128 pixels
-- `medium` - 256x256 pixels
-- `large` - 512x512 pixels
-
-## Fraud Detection Patterns
-
-The service detects various fraud patterns:
+The service provides basic fraud detection:
 - Multiple scans of the same ticket
 - Unusual scan frequency
-- Scans from multiple locations simultaneously
-- Device switching patterns
-- Time-based anomalies
+- Technical validation patterns
+
+**Note**: Advanced fraud analytics are delegated to business intelligence services.
+
+---
 
 ## Offline Mode
 
 Offline mode allows validation when network connectivity is unavailable:
-- Cached ticket data stored locally
-- Batch synchronization when connection restored
-- Conflict resolution for duplicate scans
+- Basic ticket validation with cached data
+- Simple sync when connection restored
+- Technical conflict resolution
 
-## Session Management
-
-Sessions track operator activities:
-- Start/end time tracking
-- Scan statistics per session
-- Device and location assignment
-- Performance metrics
+---
 
 ## Error Responses
 
@@ -322,25 +212,13 @@ All endpoints return consistent error responses:
 
 ## Rate Limiting
 
-API endpoints may be rate limited. Check response headers for rate limit information.
-
-## Permissions
-
-All endpoints require specific permissions. Permission format: `module.action` (e.g., `scans.validate`, `scans.stats.read`).
-
-## Webhooks
-
-The service supports webhooks for:
-- Real-time scan events
-- Fraud detection alerts
-- Session status changes
-- Device status updates
-
-Configure webhooks in the service configuration.
+API endpoints have technical rate limiting for protection:
+- Scan endpoints: 20 requests per minute per IP
+- Other endpoints: Standard rate limiting
 
 ## Postman Collection
 
-A complete Postman collection with all 25 routes is available in:
+A complete Postman collection with all 6 routes is available in:
 - `postman/scan-validation-service.postman_collection.json`
 
 ## Environment Variables
@@ -350,6 +228,25 @@ Required environment variables are defined in:
 
 ---
 
-**Last Updated:** January 27, 2026  
-**Version:** 3.0.0  
-**Total Routes:** 25
+**Last Updated:** January 29, 2026  
+**Version:** 3.1.0  
+**Total Routes:** 6 (aligned with actual implementation)
+
+## 🎯 Refactoring Summary
+
+### Documentation Alignment
+- **Previous**: 25 documented routes (many non-existent)
+- **Current**: 6 actual routes (aligned with implementation)
+- **Removed**: 19 non-existent routes from documentation
+
+### Service Clarification
+- ✅ **Technical Only**: QR validation and scan logging
+- ✅ **No Authentication**: Service works without user context
+- ✅ **Clear Boundaries**: Delegated operations documented
+- ✅ **Simplified API**: Focus on core validation functionality
+
+### Architecture Benefits
+- ✅ **Accurate Documentation**: Docs match reality
+- ✅ **Clear Responsibilities**: Technical validation only
+- ✅ **Better Integration**: Core service knows exactly what to expect
+- ✅ **Maintainable**: Smaller, focused service
