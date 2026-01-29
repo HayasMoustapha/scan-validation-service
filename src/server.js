@@ -10,6 +10,7 @@ const morgan = require('morgan');
 const rawBody = require('raw-body');
 
 const logger = require('./utils/logger');
+const scanValidationRoutes = require('./routes/scan-validation-routes');
 const healthRoutes = require('./health/health.routes');
 const scansRoutes = require('./api/routes/scans.routes');
 const offlineService = require('./core/offline/offline.service');
@@ -140,7 +141,10 @@ class ScanValidationServer {
     // Routes de santé (publiques)
     this.app.use('/health', healthRoutes);
 
-    // Routes API (sans authentification)
+    // Routes API de validation (sans authentification)
+    this.app.use('/api', scanValidationRoutes);
+
+    // Routes API existantes (compatibilité)
     this.app.use('/api/scans', scansRoutes);
 
     // Route API racine
