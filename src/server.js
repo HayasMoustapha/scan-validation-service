@@ -56,37 +56,9 @@ class ScanValidationServer {
 
     // Body parsing avec support pour les QR codes
     this.app.use(express.json({ 
-      limit: '10mb',
-      verify: (req, res, buf) => {
-        req.rawBody = buf;
-      }
+      limit: '10mb'
     }));
     this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-    // Support pour les données brutes (QR codes en base64)
-    this.app.use('/api/scans/validate', async (req, res, next) => {
-      if (req.is('application/json')) {
-        try {
-          const buf = await rawBody(req, {
-            encoding: null,
-            limit: '10mb'
-          });
-          req.rawBody = buf;
-          next();
-        } catch (error) {
-          logger.error('Failed to parse raw body', {
-            error: error.message
-          });
-          return res.status(400).json({
-            success: false,
-            error: 'Invalid request body',
-            code: 'INVALID_BODY'
-          });
-        }
-      } else {
-        next();
-      }
-    });
 
     // Sécurité contre les injections NoSQL - CORRECTION : désactiver mongoSanitize défectueux
     // TODO: Remplacer par une solution plus stable comme mongo-express-sanitize

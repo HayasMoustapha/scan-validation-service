@@ -30,7 +30,7 @@
   "author": "Hassid Belkassim",
   "license": "MIT",
   "dependencies": {
-    "axios": "^1.13.2",
+    "axios": "^1.13.4",
     "base64url": "^3.0.1",
     "bull": "^4.12.2",
     "compression": "^1.8.1",
