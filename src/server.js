@@ -1,3 +1,23 @@
+/**
+ * 📸 SCAN VALIDATION SERVICE - SERVEUR PRINCIPAL
+ * 
+ * RÔLE : Service technique de validation de tickets QR code
+ * PORT : 3005
+ * 
+ * RESPONSABILITÉS :
+ * - Validation technique des QR codes
+ * - Détection des doublons de scan
+ * - Mode offline pour validation sans connexion
+ * - Journalisation technique des scans
+ * - Statistiques basiques de scan
+ * 
+ * NE GÈRE PAS :
+ * - L'authentification utilisateur (délégué à event-planner-auth)
+ * - La logique métier (délégué à event-planner-core)
+ * - La génération de QR codes (délégué à ticket-generator-service)
+ * - La gestion des utilisateurs/opérateurs (délégué à event-planner-core)
+ */
+
 require('dotenv').config();
 
 const express = require('express');
@@ -9,6 +29,7 @@ const mongoSanitize = require('express-mongo-sanitize');
 const morgan = require('morgan');
 const rawBody = require('raw-body');
 
+// Import des services et routes internes
 const logger = require('./utils/logger');
 const scanValidationRoutes = require('./routes/scan-validation-routes');
 const healthRoutes = require('./health/health.routes');
@@ -17,22 +38,30 @@ const offlineService = require('./core/offline/offline.service');
 const bootstrap = require("./bootstrap");
 
 /**
- * Serveur principal du Scan Validation Service
+ * 🏗️ CLASSE PRINCIPALE DU SERVEUR
+ * 
+ * Configure et démarre le service de validation de tickets.
+ * Ce service est purement technique et ne contient aucune logique métier.
  */
 class ScanValidationServer {
   constructor() {
     this.app = express();
     this.port = process.env.PORT || 3005;
+    
+    // Configuration du serveur
     this.setupMiddleware();
     this.setupRoutes();
     this.setupErrorHandling();
   }
 
   /**
-   * Configure les middlewares
+   * 🔧 CONFIGURATION DES MIDDLEWARES
+   * 
+   * Configure les middlewares de sécurité, parsing et logging.
+   * Note : Pas d'authentification - service technique pur.
    */
   setupMiddleware() {
-    // Sécurité
+    // 🛡️ SÉCURITÉ - Protection des en-têtes HTTP
     this.app.use(helmet({
       contentSecurityPolicy: {
         directives: {
@@ -44,7 +73,8 @@ class ScanValidationServer {
       },
     }));
 
-    // CORS
+    // 🌐 CORS - Partage de ressources entre origines
+    // Permet à event-planner-core d'appeler ce service
     this.app.use(cors({
       origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
       credentials: true,
@@ -52,20 +82,23 @@ class ScanValidationServer {
       allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
     }));
 
-    // Compression
+    // 📦 COMPRESSION - Réduction de la taille des réponses
     this.app.use(compression());
 
-    // Body parsing avec support pour les QR codes
+    // 📝 PARSING - Traitement des corps de requête
+    // Support pour les QR codes qui peuvent être volumineux (base64)
     this.app.use(express.json({ 
       limit: '10mb'
     }));
     this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-    // Sécurité contre les injections NoSQL - CORRECTION : désactiver mongoSanitize défectueux
-    // TODO: Remplacer par une solution plus stable comme mongo-express-sanitize
+    // 🔒 SÉCURITÉ CONTRE INJECTIONS NoSQL
+    // Désactivé temporairement - middleware défectueux
+    // TODO: Remplacer par mongo-express-sanitize
     // this.app.use(mongoSanitize());
 
-    // Logging
+    // 📊 LOGGING - Journalisation des requêtes HTTP
+    // Désactivé en mode test pour éviter la pollution des logs
     if (process.env.NODE_ENV !== 'test') {
       this.app.use(morgan('combined', {
         stream: {
@@ -74,7 +107,8 @@ class ScanValidationServer {
       }));
     }
 
-    // Rate limiting général
+    // 🚦 RATE LIMITING GÉNÉRAL
+    // Désactivé pour le moment - peut être réactivé si nécessaire
     // const limiter = rateLimit({
     //   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
     //   max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
@@ -90,10 +124,11 @@ class ScanValidationServer {
     // });
     // this.app.use('/api', limiter);
 
-    // Rate limiting spécifique pour les scans
+    // 🎫 RATE LIMITING SPÉCIFIQUE POUR LES SCANS
+    // Protection contre les abus de validation de tickets
     const scanLimiter = rateLimit({
       windowMs: 60 * 1000, // 1 minute
-      max: parseInt(process.env.SCAN_RATE_LIMIT) || 20, // limit each IP to 20 scans per minute
+      max: parseInt(process.env.SCAN_RATE_LIMIT) || 20, // 20 scans par minute par IP
       message: {
         success: false,
         message: 'Limite de scans atteinte, veuillez réessayer plus tard',
@@ -102,10 +137,12 @@ class ScanValidationServer {
         }
       }
     });
+    // Appliquer le rate limiting aux endpoints de validation
     this.app.use('/api/scans/validate', scanLimiter);
     this.app.use('/api/scans/validate-offline', scanLimiter);
 
-    // Request logging
+    // 📝 LOGGING PERSONNALISÉ - Journalisation des requêtes entrantes
+    // Log détaillé pour le monitoring et le débogage
     this.app.use((req, res, next) => {
       logger.info('Incoming request', {
         method: req.method,
@@ -119,10 +156,14 @@ class ScanValidationServer {
   }
 
   /**
-   * Configure les routes
+   * 🛣️ CONFIGURATION DES ROUTES
+   * 
+   * Configure toutes les routes du service.
+   * Note : Aucune route n'est protégée par authentification.
    */
   setupRoutes() {
-    // Route racine
+    // 🏠 ROUTE RACINE - Informations sur le service
+    // Endpoint public pour vérifier que le service fonctionne
     this.app.get('/', (req, res) => {
       res.json({
         service: 'Scan Validation Service',
@@ -130,79 +171,90 @@ class ScanValidationServer {
         status: 'running',
         timestamp: new Date().toISOString(),
         capabilities: {
-          validation: true,
-          qrCode: true,
-          offline: true,
-          statistics: true
+          validation: true,        // Validation de QR codes
+          qrCode: true,           // Décodeur QR code
+          offline: true,          // Mode offline
+          statistics: true        // Stats basiques
         }
       });
     });
 
-    // Routes de santé (publiques)
+    // 🏥 ROUTES DE SANTÉ - Monitoring technique
+    // Endpoints publics pour le monitoring du service
     this.app.use('/health', healthRoutes);
 
-    // Routes API de validation (sans authentification)
+    // 📸 ROUTES API DE VALIDATION - Anciennes routes (compatibilité)
+    // Routes sans authentification - service technique pur
     this.app.use('/api', scanValidationRoutes);
 
-    // Routes API existantes (compatibilité)
+    // 🎫 ROUTES API ACTUELLES - Routes principales
+    // Routes principales de validation de tickets
     this.app.use('/api/scans', scansRoutes);
 
-    // Route API racine
+    // 📊 ROUTE API RACINE - Informations sur l'API
+    // Endpoint public pour les informations sur l'API
     this.app.get('/api', (req, res) => {
       res.json({
         service: 'Scan Validation API',
         version: process.env.npm_package_version || '1.0.0',
         endpoints: {
-          scans: '/api/scans',
-          health: '/health'
+          scans: '/api/scans',    // Routes de validation
+          health: '/health'       // Routes de santé
         },
-        documentation: '/api/docs',
+        documentation: '/api/docs', // Documentation Swagger
         timestamp: new Date().toISOString()
       });
     });
 
-    // Route pour les métriques Prometheus si activé
+    // 📊 MÉTRIQUES PROMETHEUS - Monitoring avancé (optionnel)
+    // Si activé, expose des métriques pour Prometheus
     if (process.env.ENABLE_METRICS === 'true') {
       const promClient = require('prom-client');
       
-      // Créer un registre de métriques
+      // 📈 REGISTRE DE MÉTRIQUES
+      // Crée un registre pour collecter toutes les métriques
       const register = new promClient.Registry();
       
-      // Ajouter des métriques par défaut
+      // 📊 MÉTRIQUES PAR DÉFAUT - Métriques système standard
+      // CPU, mémoire, etc.
       promClient.collectDefaultMetrics({ register });
       
-      // Métriques personnalisées
+      // 🎫 COMPTEUR DE VALIDATIONS - Nombre total de validations
       const validationCounter = new promClient.Counter({
         name: 'scan_validation_service_validations_total',
         help: 'Total number of ticket validations',
-        labelNames: ['status', 'type', 'offline']
+        labelNames: ['status', 'type', 'offline'] // valid/invalid, online/offline
       });
       
+      // 📱 COMPTEUR DE QR GÉNÉRÉS - Nombre total de QR codes générés
       const qrCounter = new promClient.Counter({
         name: 'scan_validation_service_qr_generated_total',
         help: 'Total number of QR codes generated',
-        labelNames: ['type', 'batch']
+        labelNames: ['type', 'batch'] // single/batch
       });
       
+      // 📴 COMPTEUR OPÉRATIONS OFFLINE - Nombre d'opérations offline
       const offlineCounter = new promClient.Counter({
         name: 'scan_validation_service_offline_operations_total',
         help: 'Total number of offline operations',
-        labelNames: ['operation', 'status']
+        labelNames: ['operation', 'status'] // sync/validate, success/failure
       });
       
+      // ⏱️ HISTOGRAMME DE DURÉE - Temps de validation
       const validationDuration = new promClient.Histogram({
         name: 'scan_validation_service_validation_duration_seconds',
         help: 'Duration of ticket validation',
         labelNames: ['status', 'type'],
-        buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5]
+        buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5] // En secondes
       });
       
+      // 📝 ENREGISTREMENT DES MÉTRIQUES
       register.registerMetric(validationCounter);
       register.registerMetric(qrCounter);
       register.registerMetric(offlineCounter);
       register.registerMetric(validationDuration);
       
-      // Endpoint pour les métriques
+      // 📈 ENDPOINT MÉTRIQUES - Expose les métriques Prometheus
       this.app.get('/metrics', async (req, res) => {
         try {
           res.set('Content-Type', register.contentType);
@@ -216,7 +268,8 @@ class ScanValidationServer {
       });
     }
 
-    // Route 404
+    // 🚫 ROUTE 404 - Gestion des routes non trouvées
+    // Route par défaut pour toutes les URLs non gérées
     this.app.use((req, res) => {
       res.status(404).json({
         success: false,
@@ -231,11 +284,16 @@ class ScanValidationServer {
   }
 
   /**
-   * Configure la gestion des erreurs
+   * 🚨 CONFIGURATION DE LA GESTION DES ERREURS
+   * 
+   * Configure le gestionnaire d'erreurs global.
+   * Toutes les erreurs non gérées passent par ici.
    */
   setupErrorHandling() {
-    // Gestionnaire d'erreurs global
+    // 🛑 GESTIONNAIRE D'ERREURS GLOBAL
+    // Capture toutes les erreurs non gérées dans l'application
     this.app.use((error, req, res, next) => {
+      // 📝 LOG DÉTAILLÉ DE L'ERREUR
       logger.error('Unhandled error', {
         error: error.message,
         stack: error.stack,
@@ -245,7 +303,8 @@ class ScanValidationServer {
         userAgent: req.get('User-Agent')
       });
 
-      // Ne pas envoyer le stack trace en production
+      // 🔒 SÉCURITÉ - Ne pas exposer le stack trace en production
+      // En développement, on peut envoyer plus de détails pour le débogage
       const isDevelopment = process.env.NODE_ENV === 'development';
       
       const errorResponse = {
@@ -257,14 +316,17 @@ class ScanValidationServer {
         timestamp: new Date().toISOString()
       };
 
+      // 🐛 MODE DÉVELOPPEMENT - Ajouter le stack trace pour le débogage
       if (isDevelopment) {
         errorResponse.error.stack = error.stack;
       }
 
+      // 📤 RÉPONSE D'ERREUR
       res.status(error.status || 500).json(errorResponse);
     });
 
-    // Gestion des promesses rejetées non capturées
+    // 🚨 GESTION DES PROMESSES REJETÉES - Erreurs asynchrones non capturées
+    // Capture les erreurs de promesses qui n'ont pas de .catch()
     process.on('unhandledRejection', (reason, promise) => {
       logger.error('Unhandled Rejection at:', {
         promise,
@@ -272,23 +334,21 @@ class ScanValidationServer {
       });
     });
 
-    // Gestion des exceptions non capturées
+    // 💥 GESTION DES EXCEPTIONS NON CAPTURÉES - Erreurs synchrones critiques
+    // Dernière ligne de défense contre les erreurs non gérées
     process.on('uncaughtException', (error) => {
       logger.error('Uncaught Exception:', {
         error: error.message,
         stack: error.stack
       });
       
-      // Arrêter le serveur proprement
+      // 🛑 ARRÊT PROPRE DU SERVEUR - Évite la corruption des données
       this.gracefulShutdown('SIGTERM');
     });
 
-    // Gestion des signaux système
-    process.on('SIGTERM', () => {
-      logger.info('SIGTERM received');
-      this.gracefulShutdown('SIGTERM');
-    });
-
+    // 📡 GESTION DES SIGNAUX SYSTÈME - Arrêt propre du service
+    // 📡 GESTION DES SIGNAUX SYSTÈME - Arrêt propre du service (Ctrl+C)
+    // Permet au service de s'arrêter proprement lors d'un Ctrl+C
     process.on('SIGINT', () => {
       logger.info('SIGINT received');
       this.gracefulShutdown('SIGINT');
@@ -296,18 +356,25 @@ class ScanValidationServer {
   }
 
   /**
-   * Démarre le serveur
+   * 🚀 DÉMARRAGE DU SERVEUR
+   * 
+   * Démarre le serveur après initialisation complète.
+   * Initialise la base de données, le service offline, puis démarre l'écoute.
    */
   async start() {
     try {
-      // Bootstrap automatique (crée la BD et applique les migrations)
+      // 🔧 BOOTSTRAP AUTOMATIQUE - Initialisation de la base de données
+      // Crée la base de données et applique les migrations si nécessaire
       await bootstrap.initialize();
       
-      // Initialiser le service offline
+      // 📴 INITIALISATION SERVICE OFFLINE - Préparation du mode offline
+      // Configure le service pour fonctionner sans connexion réseau
       await offlineService.initialize();
       
+      // 🚀 DÉMARRAGE DU SERVEUR
       logger.info('🚀 Starting Scan Validation Service server...');
       
+      // 📡 DÉMARRAGE DE L'ÉCOUTE - Mise en route du serveur HTTP
       this.server = this.app.listen(this.port, () => {
         logger.info(`Scan Validation Service started successfully`, {
           port: this.port,
@@ -315,40 +382,49 @@ class ScanValidationServer {
           version: process.env.npm_package_version || '1.0.0',
           pid: process.pid,
           capabilities: {
-            validation: true,
-            qrCode: true,
-            offline: true,
-            webhooks: true,
-            batch: true,
-            statistics: true,
-            metrics: process.env.ENABLE_METRICS === 'true'
+            validation: true,        // Validation de QR codes
+            qrCode: true,           // Décodeur QR code
+            offline: true,          // Mode offline
+            webhooks: true,         // Webhooks techniques
+            batch: true,            // Traitement par lot
+            statistics: true,       // Statistiques basiques
+            metrics: process.env.ENABLE_METRICS === 'true' // Métriques Prometheus
           }
         });
       });
 
+      // 🚨 GESTION DES ERREURS DE SERVEUR
+      // Capture les erreurs au niveau du serveur HTTP
       this.server.on('error', (error) => {
         if (error.syscall !== 'listen') {
           throw error;
         }
 
+        // 📍 CONSTRUCTION DU MESSAGE D'ERREUR
         const bind = typeof this.port === 'string'
           ? 'Pipe ' + this.port
           : 'Port ' + this.port;
 
+        // 🔍 GESTION DES ERREURS SPÉCIFIQUES AU PORT
+        // Traite les erreurs courantes de démarrage de serveur
         switch (error.code) {
           case 'EACCES':
+            // 🔐 PERMISSION REFUSÉE - Le port nécessite des privilèges élevés
             logger.error(`${bind} requires elevated privileges`);
             process.exit(1);
             break;
           case 'EADDRINUSE':
+            // 📍 PORT DÉJÀ UTILISÉ - Un autre processus utilise ce port
             logger.error(`${bind} is already in use`);
             process.exit(1);
             break;
           default:
+            // ❌ ERREUR INCONNUE - Propager l'erreur
             throw error;
         }
       });
     } catch (error) {
+      // 🚨 ÉCHEC DU DÉMARRAGE - Erreur lors de l'initialisation
       logger.error('Failed to start Scan Validation Service', {
         error: error.message
       });
@@ -357,29 +433,37 @@ class ScanValidationServer {
   }
 
   /**
-   * Arrête proprement le serveur
-   * @param {string} signal - Signal reçu
+   * 🛑 ARRÊT PROPRE DU SERVEUR
+   * 
+   * Arrête le serveur proprement en sauvegardant les données
+   * et en fermant les connexions existantes.
+   * 
+   * @param {string} signal - Signal système reçu (SIGTERM, SIGINT)
    */
   async gracefulShutdown(signal) {
     logger.info(`Graceful shutdown initiated by ${signal}`);
 
     try {
-      // Arrêter d'accepter de nouvelles connexions
+      // 📡 ARRÊT DU SERVEUR HTTP - Plus de nouvelles connexions
+      // Ferme le serveur mais permet aux requêtes en cours de se terminer
       if (this.server) {
         this.server.close(() => {
           logger.info('HTTP server closed');
         });
       }
 
-      // Synchroniser les données offline avant de quitter
+      // 📴 SYNCHRONISATION OFFLINE - Sauvegarde des données locales
+      // Synchronise toutes les données offline avant d'arrêter
       if (offlineService.pendingSync.size > 0) {
         logger.info('Syncing remaining offline data before shutdown');
         await offlineService.syncOfflineData();
       }
 
+      // ✅ ARRÊT COMPLÉTÉ - Toutes les données sauvegardées
       logger.info('Graceful shutdown completed');
       process.exit(0);
     } catch (error) {
+      // 🚨 ERREUR LORS DE L'ARRÊT - Problème lors de la sauvegarde
       logger.error('Error during graceful shutdown', {
         error: error.message
       });
@@ -388,7 +472,8 @@ class ScanValidationServer {
   }
 }
 
-// Démarrer le serveur si ce fichier est exécuté directement
+// 🚀 DÉMARRAGE AUTOMATIQUE - Si ce fichier est exécuté directement
+// Permet de démarrer le service avec `node src/server.js`
 if (require.main === module) {
   const server = new ScanValidationServer();
   server.start().catch(error => {
@@ -397,4 +482,5 @@ if (require.main === module) {
   });
 }
 
+// 📤 EXPORTATION - Pour les tests et l'utilisation dans d'autres modules
 module.exports = ScanValidationServer;
