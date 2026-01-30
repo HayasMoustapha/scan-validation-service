@@ -306,13 +306,13 @@ function historyResponse(historyData, meta = {}) {
 }
 
 /**
- * Réponse pour les erreurs de validation
+ * Réponse pour les erreurs de validation de ticket
  * @param {string} message - Message d'erreur
  * @param {string} validationCode - Code d'erreur de validation
  * @param {Object} meta - Métadonnées additionnelles
  * @returns {Object} Réponse formatée
  */
-function validationErrorResponse(message, validationCode, meta = {}) {
+function ticketValidationErrorResponse(message, validationCode, meta = {}) {
   return {
     success: false,
     message,
@@ -412,7 +412,7 @@ module.exports = {
   offlineResponse,
   checkpointResponse,
   historyResponse,
-  validationErrorResponse,
+  ticketValidationErrorResponse,
   qrErrorResponse,
   offlineErrorResponse,
   syncErrorResponse

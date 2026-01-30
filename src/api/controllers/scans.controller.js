@@ -7,7 +7,7 @@ const {
   scanResponse,
   statsResponse,
   errorResponse,
-  validationErrorResponse,
+  ticketValidationErrorResponse,
   offlineErrorResponse
 } = require('../../utils/response');
 const logger = require('../../utils/logger');
@@ -28,7 +28,7 @@ class ScansController {
       
       if (!qrCode) {
         return res.status(400).json(
-          validationErrorResponse('QR code requis', 'MISSING_QR_CODE')
+          ticketValidationErrorResponse('QR code requis', 'MISSING_QR_CODE')
         );
       }
 
@@ -67,7 +67,7 @@ class ScansController {
         }
 
         return res.status(400).json(
-          validationErrorResponse(validationResult.error, validationResult.code)
+          ticketValidationErrorResponse(validationResult.error, validationResult.code)
         );
       }
 
@@ -114,7 +114,7 @@ class ScansController {
       
       if (!ticketId) {
         return res.status(400).json(
-          validationErrorResponse('ID du ticket requis', 'MISSING_TICKET_ID')
+          ticketValidationErrorResponse('ID du ticket requis', 'MISSING_TICKET_ID')
         );
       }
 
@@ -156,7 +156,7 @@ class ScansController {
       
       if (!ticketId) {
         return res.status(400).json(
-          validationErrorResponse('ID du ticket requis', 'MISSING_TICKET_ID')
+          ticketValidationErrorResponse('ID du ticket requis', 'MISSING_TICKET_ID')
         );
       }
 
@@ -193,7 +193,7 @@ class ScansController {
       
       if (!eventId) {
         return res.status(400).json(
-          validationErrorResponse('ID de l\'événement requis', 'MISSING_EVENT_ID')
+          ticketValidationErrorResponse('ID de l\'événement requis', 'MISSING_EVENT_ID')
         );
       }
 

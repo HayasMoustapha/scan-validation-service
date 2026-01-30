@@ -490,3 +490,7 @@ if (require.main === module) {
 
 // 📤 EXPORTATION - Pour les tests et l'utilisation dans d'autres modules
 module.exports = ScanValidationServer;
+
+// Export de l'app Express pour les tests
+const testServerInstance = new ScanValidationServer();
+module.exports.app = testServerInstance.app;
