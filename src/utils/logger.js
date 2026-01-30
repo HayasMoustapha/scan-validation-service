@@ -127,9 +127,6 @@ logger.performance = (message, meta = {}) => {
   logger.info(`[PERF] ${message}`, { ...meta, category: 'performance' });
 };
 
-logger.validation = (message, meta = {}) => {
-  logger.warn(`[VALIDATION] ${message}`, { ...meta, category: 'validation' });
-};
 
 logger.external = (message, meta = {}) => {
   logger.info(`[EXTERNAL] ${message}`, { ...meta, category: 'external' });

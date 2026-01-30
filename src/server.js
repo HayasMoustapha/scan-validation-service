@@ -225,25 +225,28 @@ class ScanValidationServer {
       // CPU, mémoire, etc.
       promClient.collectDefaultMetrics({ register });
       
-      // 🎫 COMPTEUR DE VALIDATIONS - Nombre total de validations
+      // 📱 COMPTEUR DE VALIDATIONS - Nombre total de validations
       const validationCounter = new promClient.Counter({
         name: 'scan_validation_service_validations_total',
         help: 'Total number of ticket validations',
-        labelNames: ['status', 'type', 'offline'] // valid/invalid, online/offline
+        labelNames: ['status', 'type', 'offline'], // valid/invalid, online/offline
+        registers: [register] // Spécifier le registre pour éviter les conflits
       });
       
       // 📱 COMPTEUR DE QR GÉNÉRÉS - Nombre total de QR codes générés
       const qrCounter = new promClient.Counter({
         name: 'scan_validation_service_qr_generated_total',
         help: 'Total number of QR codes generated',
-        labelNames: ['type', 'batch'] // single/batch
+        labelNames: ['type', 'batch'], // single/batch
+        registers: [register] // Spécifier le registre pour éviter les conflits
       });
       
       // 📴 COMPTEUR OPÉRATIONS OFFLINE - Nombre d'opérations offline
       const offlineCounter = new promClient.Counter({
         name: 'scan_validation_service_offline_operations_total',
         help: 'Total number of offline operations',
-        labelNames: ['operation', 'status'] // sync/validate, success/failure
+        labelNames: ['operation', 'status'], // sync/validate, success/failure
+        registers: [register] // Spécifier le registre pour éviter les conflits
       });
       
       // ⏱️ HISTOGRAMME DE DURÉE - Temps de validation
@@ -251,7 +254,8 @@ class ScanValidationServer {
         name: 'scan_validation_service_validation_duration_seconds',
         help: 'Duration of ticket validation',
         labelNames: ['status', 'type'],
-        buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5] // En secondes
+        buckets: [0.01, 0.05, 0.1, 0.5, 1, 2, 5], // En secondes
+        registers: [register] // Spécifier le registre pour éviter les conflits
       });
       
       // 📝 ENREGISTREMENT DES MÉTRIQUES
