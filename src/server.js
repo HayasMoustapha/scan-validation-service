@@ -34,6 +34,7 @@ const logger = require('./utils/logger');
 const scanValidationRoutes = require('./routes/scan-validation-routes');
 const healthRoutes = require('./health/health.routes');
 const scansRoutes = require('./api/routes/scans.routes');
+const confirmationRoutes = require('./api/routes/confirmation.routes');
 const offlineService = require('./core/offline/offline.service');
 const bootstrap = require("./bootstrap");
 
@@ -191,15 +192,20 @@ class ScanValidationServer {
     // Routes principales de validation de tickets
     this.app.use('/api/scans', scansRoutes);
 
-    // 📊 ROUTE API RACINE - Informations sur l'API
+    // � ROUTES INTERNES - Communication inter-services
+    // Routes pour recevoir les confirmations d'Event-Planner-Core
+    this.app.use('/api/internal', confirmationRoutes);
+
+    // � ROUTE API RACINE - Informations sur l'API
     // Endpoint public pour les informations sur l'API
     this.app.get('/api', (req, res) => {
       res.json({
         service: 'Scan Validation API',
         version: process.env.npm_package_version || '1.0.0',
         endpoints: {
-          scans: '/api/scans',    // Routes de validation
-          health: '/health'       // Routes de santé
+          scans: '/api/scans',           // Routes de validation
+          internal: '/api/internal',     // Routes internes inter-services
+          health: '/health'              // Routes de santé
         },
         documentation: '/api/docs', // Documentation Swagger
         timestamp: new Date().toISOString()

@@ -159,55 +159,64 @@ class EventCoreClient {
   }
 
   /**
-   * Valide un ticket via event-planner-core
-   * @param {Object} ticketData - Données du ticket validées par QR decoder
-   * @param {Object} scanContext - Contexte du scan
-   * @returns {Promise<Object>} Résultat de la validation
-   */
-  async validateTicket(ticketData, scanContext) {
-    try {
-      logger.core('Validating ticket via EventCore', {
-        ticketId: ticketData.ticketId,
-        eventId: ticketData.eventId,
-        scanLocation: scanContext.location
-      });
+ * Valide un ticket via event-planner-core (ARCHITECTURE CORRIGÉE)
+ * 
+ * IMPORTANT : Ce client appelle les routes INTERNES d'Event-Planner-Core
+ * pour éviter les appels circulaires. Event-Planner-Core effectue la validation
+ * métier LOCALE et retourne le résultat sans appeler en retour.
+ * 
+ * @param {Object} ticketData - Données du ticket validées par QR decoder
+ * @param {Object} scanContext - Contexte du scan
+ * @returns {Promise<Object>} Résultat de la validation
+ */
+async validateTicket(ticketData, scanContext) {
+  try {
+    logger.core('Validating ticket via EventCore (INTERNAL ROUTE)', {
+      ticketId: ticketData.ticketId,
+      eventId: ticketData.eventId,
+      scanLocation: scanContext.location
+    });
 
-      const payload = {
-        ticketId: ticketData.ticketId,
-        eventId: ticketData.eventId,
-        ticketType: ticketData.ticketType,
-        userId: ticketData.userId,
-        scanContext: {
-          location: scanContext.location,
-          deviceId: scanContext.deviceId,
-          timestamp: scanContext.timestamp || new Date().toISOString(),
-          operatorId: scanContext.operatorId,
-          checkpointId: scanContext.checkpointId
-        },
-        validationMetadata: {
-          qrVersion: ticketData.version,
-          qrAlgorithm: ticketData.algorithm,
-          validatedAt: ticketData.validationInfo?.validatedAt
-        }
-      };
+    const payload = {
+      ticketId: ticketData.ticketId,
+      eventId: ticketData.eventId,
+      ticketType: ticketData.ticketType,
+      userId: ticketData.userId,
+      scanContext: {
+        location: scanContext.location,
+        deviceId: scanContext.deviceId,
+        timestamp: scanContext.timestamp || new Date().toISOString(),
+        operatorId: scanContext.operatorId,
+        checkpointId: scanContext.checkpointId
+      },
+      validationMetadata: {
+        qrVersion: ticketData.version,
+        qrAlgorithm: ticketData.algorithm,
+        validatedAt: ticketData.validationInfo?.validatedAt
+      }
+    };
 
-      const result = await this.validateTicketBreaker.fire(payload);
+    // CORRIGÉ : Appel aux routes INTERNES d'Event-Planner-Core
+    const result = await this.validateTicketBreaker.fire(payload);
 
-      logger.core('Ticket validation successful', {
-        ticketId: ticketData.ticketId,
-        result: result.data?.status
-      });
+    logger.core('Ticket validation successful via INTERNAL route', {
+      ticketId: ticketData.ticketId,
+      result: result.data?.success,
+      processingTime: result.responseTime
+    });
 
-      return {
-        success: true,
-        data: result.data,
-        metadata: {
-          responseTime: result.responseTime,
-          requestId: result.requestId
-        }
-      };
+    // Normalisation du résultat pour compatibilité avec Scan-Validation Service
+    return {
+      success: true,
+      data: result.data?.data || result.data, // Gérer les deux formats de réponse possibles
+      metadata: {
+        responseTime: result.responseTime,
+        requestId: result.requestId,
+        validationType: 'INTERNAL_BUSINESS_VALIDATION'
+      }
+    };
 
-    } catch (error) {
+  } catch (error) {
       logger.error('Ticket validation failed via EventCore', {
         ticketId: ticketData.ticketId,
         error: error.message,
