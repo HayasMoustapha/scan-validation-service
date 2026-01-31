@@ -106,10 +106,44 @@ class ValidationService {
         }
 
         // Étape 4: Validation métier via event-planner-core
-        const businessValidation = await eventCoreClient.validateTicket(
-          qrValidation.data,
-          scanContext
-        );
+        let businessValidation;
+        
+        if (process.env.NODE_ENV === 'development') {
+          // Mode développement: simulation de validation business
+          businessValidation = {
+            success: true,
+            data: {
+              ticket: {
+                id: qrValidation.data.ticketId,
+                eventId: qrValidation.data.eventId,
+                ticketType: qrValidation.data.ticketType,
+                status: 'ACTIVE',
+                isValid: true
+              },
+              event: {
+                id: qrValidation.data.eventId,
+                name: 'Test Event Flow 3',
+                status: 'ACTIVE',
+                allowScanning: true
+              }
+            },
+            metadata: {
+              source: 'development_mock',
+              validationTime: Date.now() - startTime
+            }
+          };
+          
+          logger.validation('Development mode: using mock business validation', {
+            ticketId: qrValidation.data.ticketId,
+            eventId: qrValidation.data.eventId
+          });
+        } else {
+          // Mode production: validation réelle via event-planner-core
+          businessValidation = await eventCoreClient.validateTicket(
+            qrValidation.data,
+            scanContext
+          );
+        }
 
         if (!businessValidation.success) {
           this.stats.failedScans++;
