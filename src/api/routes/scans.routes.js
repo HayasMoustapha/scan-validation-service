@@ -53,6 +53,15 @@ router.get('/history/ticket/:ticketId',
   scansController.getTicketScanHistory
 );
 
+// GET /api/scans/ticket/:ticketId/logs - Logs de scan pour un ticket (pour Event-Planner-Core)
+// NOTE : Endpoint interne pour consultation cross-service
+router.get('/ticket/:ticketId/logs',
+  ValidationMiddleware.validateParams({
+    ticketId: Joi.string().required()
+  }),
+  scansController.getTicketScanLogs
+);
+
 // GET /api/scans/stats/event/:eventId - Statistiques techniques de scan
 // NOTE : Données techniques uniquement, pas d'analytics métier
 router.get('/stats/event/:eventId',

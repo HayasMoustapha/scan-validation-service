@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const base64url = require('base64url');
+const pngDecoderService = require('./png-decoder.service');
 const logger = require('../../utils/logger');
 
 /**
@@ -323,22 +324,19 @@ class QRDecoderService {
    */
   async decodePNGBase64Format(qrCode) {
     try {
-      // Pour le format PNG Base64 de Ticket-Generator,
-      // on extrait les métadonnées du format de l'image
+      // Utiliser le nouveau service de décodage PNG
+      const ticketData = await pngDecoderService.extractTicketDataFromPNG(qrCode);
       
-      // Simuler la détection du ticket ID depuis le QR code
-      // En production, ceci utiliserait une vraie librairie de décodage QR
-      const mockTicketData = this.extractTicketDataFromPNG(qrCode);
-      
-      logger.qr('PNG Base64 QR code decoded (mock mode)', {
+      logger.qr('PNG Base64 QR code decoded successfully', {
         format: 'PNG-Base64',
-        ticketId: mockTicketData.ticketId,
-        eventId: mockTicketData.eventId
+        ticketId: ticketData.ticketId,
+        eventId: ticketData.eventId,
+        hasSignature: !!ticketData.signature
       });
 
       return {
         success: true,
-        data: mockTicketData
+        data: ticketData
       };
     } catch (error) {
       logger.error('Failed to decode PNG Base64 QR code', {
@@ -349,7 +347,8 @@ class QRDecoderService {
       return {
         success: false,
         error: 'Format PNG Base64 invalide',
-        code: 'INVALID_PNG_BASE64_FORMAT'
+        code: 'INVALID_PNG_BASE64_FORMAT',
+        technicalDetails: error.message
       };
     }
   }

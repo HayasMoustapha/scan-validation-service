@@ -244,39 +244,126 @@ function verifyDataCoherence(ticketData, ticketCode, eventId) {
  */
 async function checkTicketReuse(ticketId, ticketCode) {
   try {
-    // TODO: Implémenter la vérification en base de données
-    // Pour l'instant, nous simulons le contrôle
+    // Implémentation de la vérification en base de données
+    const { Pool } = require('pg');
+    const logger = require('../utils/logger');
     
-    // En production, requête SQL comme:
-    // SELECT is_validated, validated_at FROM tickets WHERE id = $1 AND ticket_code = $2
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    });
+
+    const query = `
+      SELECT 
+        sl.id,
+        sl.scanned_at,
+        sl.result,
+        sl.ticket_id,
+        stc.scan_count,
+        stc.is_blocked,
+        stc.block_reason
+      FROM scan_logs sl
+      LEFT JOIN scanned_tickets_cache stc ON sl.ticket_id = stc.ticket_id
+      WHERE sl.ticket_id = $1 
+        AND sl.result = 'valid'
+      ORDER BY sl.scanned_at DESC
+      LIMIT 1
+    `;
+
+    const result = await pool.query(query, [ticketId]);
     
-    // Simulation: le ticket n'a pas encore été utilisé
+    if (result.rows.length === 0) {
+      // Premier scan de ce ticket
+      logger.validation('Ticket never scanned before', { ticketId, ticketCode });
+      return {
+        already_used: false,
+        validated_at: null,
+        scan_count: 0,
+        is_blocked: false
+      };
+    }
+
+    const lastScan = result.rows[0];
+    const scanCount = lastScan.scan_count || 1;
+    
+    // Vérifier si le ticket est bloqué
+    if (lastScan.is_blocked) {
+      logger.validation('Ticket is blocked', { 
+        ticketId, 
+        ticketCode, 
+        blockReason: lastScan.block_reason 
+      });
+      return {
+        already_used: true,
+        validated_at: lastScan.scanned_at,
+        scan_count: scanCount,
+        is_blocked: true,
+        block_reason: lastScan.block_reason,
+        error: 'Ticket is blocked due to suspicious activity'
+      };
+    }
+
+    // Vérifier si le ticket a déjà été validé aujourd'hui
+    const today = new Date().toDateString();
+    const lastScanDate = new Date(lastScan.scanned_at).toDateString();
+    
+    if (lastScanDate === today) {
+      logger.validation('Ticket already used today', { 
+        ticketId, 
+        ticketCode, 
+        lastScanAt: lastScan.scanned_at,
+        scanCount 
+      });
+      return {
+        already_used: true,
+        validated_at: lastScan.scanned_at,
+        scan_count: scanCount,
+        is_blocked: false,
+        error: 'Ticket already used today'
+      };
+    }
+
+    // Le ticket a été scanné auparavant mais pas aujourd'hui
+    logger.validation('Ticket scanned before but not today', { 
+      ticketId, 
+      ticketCode, 
+      lastScanAt: lastScan.scanned_at,
+      scanCount 
+    });
+    
     return {
       already_used: false,
-      validated_at: null
+      validated_at: lastScan.scanned_at,
+      scan_count: scanCount,
+      is_blocked: false
     };
     
   } catch (error) {
-    console.error('[SCAN_VALIDATOR] Erreur contrôle réutilisation:', error.message);
+    logger.error('Failed to check ticket reuse', {
+      error: error.message,
+      ticketId,
+      ticketCode
+    });
     
-    // En cas d'erreur, on considère que le ticket n'a pas été utilisé
-    // pour éviter de bloquer l'accès à tort
+    // En cas d'erreur de base de données, on autorise le scan par défaut
+    // mais on log l'erreur pour investigation
     return {
       already_used: false,
-      validated_at: null
+      validated_at: null,
+      scan_count: 0,
+      is_blocked: false,
+      warning: 'Database check failed, allowing scan with caution'
     };
   }
 }
 
-/**
- * Génère un checksum SHA256 pour les données du ticket
- * @param {Object} data - Données à hasher
- * @returns {string} Checksum SHA256
- */
-function generateChecksum(data) {
-  const dataString = JSON.stringify(data);
-  return crypto.createHash('sha256').update(dataString).digest('hex');
-}
+module.exports = {
+  validateTicket,
+  checkTicketReuse,
+  healthCheck
+};
 
 /**
  * Health check du service de validation
@@ -320,6 +407,5 @@ module.exports = {
   ping,
   verifyQRCodeIntegrity,
   verifyDataCoherence,
-  checkTicketReuse,
-  generateChecksum
+  checkTicketReuse
 };

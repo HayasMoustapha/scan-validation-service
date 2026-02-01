@@ -122,7 +122,7 @@ class ScanRepository {
       `;
 
       const values = [
-        scanLogData.sessionId,
+        scanLogData.sessionId, // CORRIGÉ: Peut être null
         scanLogData.scannedAt || new Date(),
         scanLogData.result,
         scanLogData.location,
@@ -152,6 +152,15 @@ class ScanRepository {
       });
       throw new Error('Échec de l\'enregistrement du log de scan');
     }
+  }
+
+  /**
+   * Alias pour createScanLog - utilisé par le service de scan
+   * @param {Object} scanData - Données du scan
+   * @returns {Promise<Object>} Log de scan créé
+   */
+  async recordScan(scanData) {
+    return await this.createScanLog(scanData);
   }
 
   /**
@@ -567,6 +576,70 @@ class ScanRepository {
         healthy: false,
         error: error.message
       };
+    }
+  }
+
+  /**
+   * Récupère les logs de scan pour un ticket (endpoint interne pour Event-Planner-Core)
+   * @param {number} ticketId - ID du ticket
+   * @returns {Promise<Array>} Logs de scan
+   */
+  async getTicketLogs(ticketId) {
+    try {
+      // REQUÊTE CORRIGÉE: Uniquement les colonnes existantes dans scan_logs
+      const query = `
+        SELECT 
+          sl.id,
+          sl.uid,
+          sl.scan_session_id,
+          sl.ticket_id,
+          sl.result,
+          sl.scanned_at,
+          sl.ticket_data,
+          sl.validation_details,
+          sl.fraud_flags,
+          sl.location,
+          sl.device_id,
+          sl.created_by,
+          sl.created_at,
+          ss.uid as session_uid
+        FROM scan_logs sl
+        LEFT JOIN scan_sessions ss ON sl.scan_session_id = ss.id
+        WHERE sl.ticket_id = $1
+        ORDER BY sl.scanned_at DESC
+        LIMIT 100
+      `;
+
+      const result = await this.pool.query(query, [ticketId]);
+      
+      logger.debug('Retrieved scan logs from database', {
+        ticketId,
+        logCount: result.rows.length
+      });
+
+      // MAPPING CORRIGÉ: Uniquement les champs existants
+      return result.rows.map(row => ({
+        id: row.id,
+        uid: row.uid,
+        sessionId: row.scan_session_id,
+        sessionUid: row.session_uid,
+        ticketId: row.ticket_id,
+        scanResult: row.result,
+        scanTime: row.scanned_at,
+        ticketData: row.ticket_data,
+        validationDetails: row.validation_details,
+        fraudFlags: row.fraud_flags,
+        location: row.location,
+        deviceId: row.device_id,
+        createdBy: row.created_by,
+        createdAt: row.created_at
+      }));
+    } catch (error) {
+      logger.error('Failed to get ticket logs from database', {
+        ticketId,
+        error: error.message
+      });
+      throw new Error('Échec de la récupération des logs de scan');
     }
   }
 

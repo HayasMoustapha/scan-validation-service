@@ -180,8 +180,8 @@ async validateTicket(ticketData, scanContext) {
     const payload = {
       ticketId: ticketData.ticketId,
       eventId: ticketData.eventId,
-      ticketType: ticketData.ticketType,
-      userId: ticketData.userId,
+      ticketType: ticketData.ticketType || 'standard',
+      userId: ticketData.userId || 1, // CORRIGÉ: Assurer userId par défaut
       scanContext: {
         location: scanContext.location,
         deviceId: scanContext.deviceId,
@@ -453,7 +453,7 @@ async validateTicket(ticketData, scanContext) {
     const startTime = Date.now();
     
     try {
-      const response = await this.httpClient.post('/api/internal/scans/record', scanData);
+      const response = await this.httpClient.post('/api/internal/scans/validate', scanData);
       
       return {
         data: response.data,

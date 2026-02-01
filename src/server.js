@@ -94,9 +94,26 @@ class ScanValidationServer {
     this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
     // 🔒 SÉCURITÉ CONTRE INJECTIONS NoSQL
-    // Désactivé temporairement - middleware défectueux
-    // TODO: Remplacer par mongo-express-sanitize
-    // this.app.use(mongoSanitize());
+    // Implémentation d'un middleware de sanitization basique
+    const self = this;
+    this.app.use((req, res, next) => {
+      try {
+        // Sanitize les objets dans le body pour prévenir les injections NoSQL
+        if (req.body && typeof req.body === 'object') {
+          req.body = self.sanitizeObject(req.body);
+        }
+        
+        // NE PAS MODIFIER req.query directement - créer une copie si nécessaire
+        // req.query est en lecture seule dans certaines versions d'Express
+        // if (req.query && typeof req.query === 'object') {
+        //   req.query = self.sanitizeObject(req.query);
+        // }
+      } catch (error) {
+        logger.error('Sanitization error:', error);
+      }
+      
+      next();
+    });
 
     // 📊 LOGGING - Journalisation des requêtes HTTP
     // Désactivé en mode test pour éviter la pollution des logs
@@ -443,7 +460,67 @@ class ScanValidationServer {
   }
 
   /**
-   * 🛑 ARRÊT PROPRE DU SERVEUR
+   * � SANITIZATION DES OBJETS - Prévention des injections NoSQL
+   * 
+   * Nettoie les objets en supprimant les opérateurs MongoDB dangereux
+   * et en validant la structure des données.
+   * 
+   * @param {Object} obj - Objet à nettoyer
+   * @returns {Object} Objet nettoyé
+   */
+  sanitizeObject(obj) {
+    if (!obj || typeof obj !== 'object') {
+      return obj;
+    }
+
+    // Liste des opérateurs MongoDB dangereux à bloquer
+    const dangerousOperators = [
+      '$where', '$regex', '$expr', '$jsonSchema', '$text', '$elemMatch',
+      '$gt', '$gte', '$lt', '$lte', '$ne', '$in', '$nin', '$exists',
+      '$type', '$mod', '$all', '$size', '$not', '$nor', '$and', '$or',
+      '$inc', '$mul', '$rename', '$setOnInsert', '$min', '$max', '$currentDate',
+      '$addToSet', '$push', '$each', '$slice', '$sort', '$position', '$bit',
+      '$pull', '$pullAll', '$pop', '$unset'
+    ];
+
+    const clean = {};
+    
+    for (const [key, value] of Object.entries(obj)) {
+      // Vérifier si la clé est un opérateur dangereux
+      if (dangerousOperators.includes(key)) {
+        logger.warn('Dangerous operator detected and removed', { 
+          operator: key, 
+          value: typeof value === 'object' ? '[Object]' : value 
+        });
+        continue;
+      }
+
+      // Nettoyer récursivement les objets imbriqués
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        clean[key] = this.sanitizeObject(value);
+      } 
+      // Nettoyer les tableaux
+      else if (Array.isArray(value)) {
+        clean[key] = value.map(item => 
+          (item && typeof item === 'object') ? this.sanitizeObject(item) : item
+        );
+      }
+      // Valider les chaînes de caractères
+      else if (typeof value === 'string') {
+        // Limiter la taille des chaînes pour prévenir les attaques
+        clean[key] = value.length > 10000 ? value.substring(0, 10000) : value;
+      }
+      // Garder les autres types tels quels
+      else {
+        clean[key] = value;
+      }
+    }
+
+    return clean;
+  }
+
+  /**
+   * �🛑 ARRÊT PROPRE DU SERVEUR
    * 
    * Arrête le serveur proprement en sauvegardant les données
    * et en fermant les connexions existantes.

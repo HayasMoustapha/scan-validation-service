@@ -146,15 +146,16 @@ class ScanService {
       const scanLog = await scanRepository.createScanLog({
         sessionId: scanData.sessionId,
         scannedAt: scanData.timestamp,
-        result: scanData.result.toUpperCase(),
+        result: scanData.result, // CORRIGÉ: Ne pas mettre en majuscules, l'enum attend 'valid'
         location: scanData.scanContext?.location,
         deviceId: scanData.scanContext?.deviceId,
         ticketId: scanData.ticketId,
-        ticketData: scanData.qrMetadata,
+        ticketData: scanData.qrMetadata || {}, // CORRIGÉ: Assurer que c'est un objet
         validationDetails: {
           validationId: scanData.validationId,
           validationTime: scanData.validationTime,
-          businessValidation: scanData.businessValidation
+          businessValidation: scanData.businessValidation,
+          eventId: scanData.eventId
         },
         fraudFlags: scanData.fraudFlags,
         createdBy: scanData.scanContext?.userId
@@ -605,6 +606,30 @@ class ScanService {
         healthy: false,
         error: error.message
       };
+    }
+  }
+
+  /**
+   * Récupère les logs de scan pour un ticket
+   * @param {string} ticketId - ID du ticket
+   * @returns {Promise<Array>} Logs de scan
+   */
+  async getTicketLogs(ticketId) {
+    try {
+      const logs = await scanRepository.getTicketLogs(ticketId);
+      
+      logger.scan('Retrieved scan logs for ticket', {
+        ticketId,
+        logCount: logs.length
+      });
+
+      return logs;
+    } catch (error) {
+      logger.error('Failed to get ticket logs', {
+        ticketId,
+        error: error.message
+      });
+      throw error;
     }
   }
 

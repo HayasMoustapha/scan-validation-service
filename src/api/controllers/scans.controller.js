@@ -52,12 +52,14 @@ class ScansController {
         if (validationResult.validationId) {
           await scanService.recordScan({
             validationId: validationResult.validationId,
+            sessionId: null,
             ticketId: 'UNKNOWN',
             eventId: 'UNKNOWN',
-            result: validationResult.code,
+            result: validationResult.code?.toLowerCase() || 'validation_error', // CORRIGÉ: minuscule pour l'enum
             scanContext,
             timestamp: new Date().toISOString(),
             validationTime: validationResult.validationTime,
+            fraudFlags: null
           }).catch(err => {
             logger.error('Failed to record failed scan', {
               error: err.message,
@@ -74,14 +76,16 @@ class ScansController {
       // Enregistrer le scan réussi
       await scanService.recordScan({
         validationId: validationResult.validationId,
+        sessionId: null,
         ticketId: validationResult.ticket.id,
         eventId: validationResult.ticket.eventId,
-        result: 'VALID',
+        result: 'valid', // CORRIGÉ: minuscule pour l'enum
         scanContext,
         timestamp: new Date().toISOString(),
         validationTime: validationResult.validationTime,
         qrMetadata: validationResult.metadata?.qrValidation,
-        businessValidation: validationResult.metadata?.businessValidation
+        businessValidation: validationResult.metadata?.businessValidation,
+        fraudFlags: null
       }).catch(err => {
         logger.error('Failed to record successful scan', {
           error: err.message,
@@ -258,6 +262,36 @@ class ScansController {
 
       return res.status(503).json(
         errorResponse('Service de validation indisponible', null, 'HEALTH_CHECK_FAILED')
+      );
+    }
+  }
+
+  /**
+   * Récupère les logs de scan pour un ticket (endpoint interne pour Event-Planner-Core)
+   */
+  async getTicketScanLogs(req, res) {
+    try {
+      const { ticketId } = req.params;
+      
+      logger.scan('Fetching scan logs for ticket', { ticketId });
+
+      const logs = await scanService.getTicketLogs(ticketId);
+
+      return res.status(200).json(
+        successResponse('Logs de scan récupérés avec succès', {
+          ticketId,
+          logs,
+          count: logs.length
+        })
+      );
+    } catch (error) {
+      logger.error('Failed to get ticket scan logs', {
+        ticketId: req.params.ticketId,
+        error: error.message
+      });
+
+      return res.status(500).json(
+        errorResponse('Échec de la récupération des logs de scan', null, 'SCAN_LOGS_FAILED')
       );
     }
   }
