@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const scanRepository = require('../database/scan.repository');
 const logger = require('../../utils/logger');
+const notificationClient = require('../../../../shared/clients/notification-client');
 
 /**
  * Service de gestion des scans
@@ -665,6 +666,195 @@ class ScanService {
     };
 
     logger.info('Scan service stats reset');
+  }
+
+  /**
+   * Envoie une notification de fraude détectée
+   * @param {Object} fraudData - Données de la fraude
+   * @returns {Promise<Object>} Résultat de l'envoi
+   */
+  async sendFraudDetectionNotification(fraudData) {
+    try {
+      // Envoyer une alerte aux administrateurs
+      const adminEmails = process.env.ADMIN_EMAILS?.split(',') || ['admin@eventplanner.com'];
+      
+      const result = await notificationClient.sendEmail({
+        to: adminEmails,
+        template: 'fraud-detected',
+        subject: '🚨 Alerte de fraude détectée',
+        data: {
+          ticketId: fraudData.ticketId,
+          eventId: fraudData.eventId,
+          scanCount: fraudData.scanCount,
+          maxAllowed: this.maxScansPerTicket,
+          locations: fraudData.locations,
+          timeWindow: fraudData.timeWindow,
+          riskScore: fraudData.riskScore,
+          detectionTime: new Date(fraudData.timestamp).toLocaleString('fr-FR'),
+          actionRequired: this.blockOnFraud
+        },
+        priority: 'high'
+      });
+
+      if (!result.success) {
+        logger.error('[SCAN_VALIDATION] Failed to send fraud notification:', result.error);
+      }
+
+      return result;
+    } catch (error) {
+      logger.error('[SCAN_VALIDATION] Error sending fraud detection notification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Envoie une notification de scan anormal
+   * @param {Object} scanData - Données du scan anormal
+   * @returns {Promise<Object>} Résultat de l'envoi
+   */
+  async sendAnomalousScanNotification(scanData) {
+    try {
+      const adminEmails = process.env.ADMIN_EMAILS?.split(',') || ['admin@eventplanner.com'];
+      
+      const result = await notificationClient.sendEmail({
+        to: adminEmails,
+        template: 'anomalous-scan',
+        subject: '⚠️ Activité de scan anormale détectée',
+        data: {
+          ticketId: scanData.ticketId,
+          eventId: scanData.eventId,
+          anomalyType: scanData.anomalyType,
+          description: scanData.description,
+          scanTime: new Date(scanData.timestamp).toLocaleString('fr-FR'),
+          operatorId: scanData.operatorId,
+          location: scanData.location
+        },
+        priority: 'normal'
+      });
+
+      if (!result.success) {
+        logger.error('[SCAN_VALIDATION] Failed to send anomalous scan notification:', result.error);
+      }
+
+      return result;
+    } catch (error) {
+      logger.error('[SCAN_VALIDATION] Error sending anomalous scan notification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Envoie un rapport de scan quotidien
+   * @param {Object} reportData - Données du rapport
+   * @returns {Promise<Object>} Résultat de l'envoi
+   */
+  async sendDailyScanReport(reportData) {
+    try {
+      const adminEmails = process.env.ADMIN_EMAILS?.split(',') || ['admin@eventplanner.com'];
+      
+      const result = await notificationClient.sendEmail({
+        to: adminEmails,
+        template: 'daily-scan-report',
+        subject: `Rapport de scans quotidien - ${new Date().toLocaleDateString('fr-FR')}`,
+        data: {
+          date: new Date().toLocaleDateString('fr-FR'),
+          totalScans: reportData.totalScans,
+          uniqueTickets: reportData.uniqueTickets,
+          fraudAttempts: reportData.fraudAttempts,
+          blockedTickets: reportData.blockedTickets,
+          activeSessions: reportData.activeSessions,
+          topEvents: reportData.topEvents,
+          peakHour: reportData.peakHour
+        },
+        priority: 'low'
+      });
+
+      if (!result.success) {
+        logger.error('[SCAN_VALIDATION] Failed to send daily scan report:', result.error);
+      }
+
+      return result;
+    } catch (error) {
+      logger.error('[SCAN_VALIDATION] Error sending daily scan report:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Envoie une notification de session de scan démarrée
+   * @param {Object} sessionData - Données de la session
+   * @returns {Promise<Object>} Résultat de l'envoi
+   */
+  async sendSessionStartNotification(sessionData) {
+    try {
+      // Notifier l'opérateur de la session
+      if (sessionData.operatorEmail) {
+        const result = await notificationClient.sendEmail({
+          to: sessionData.operatorEmail,
+          template: 'scan-session-started',
+          subject: 'Session de scan démarrée',
+          data: {
+            sessionId: sessionData.id,
+            eventName: sessionData.eventName,
+            location: sessionData.location,
+            startTime: new Date(sessionData.startedAt).toLocaleString('fr-FR'),
+            deviceId: sessionData.deviceId
+          },
+          priority: 'normal'
+        });
+
+        if (!result.success) {
+          logger.error('[SCAN_VALIDATION] Failed to send session start notification:', result.error);
+        }
+
+        return result;
+      } else {
+        logger.warn('[SCAN_VALIDATION] No operator email found for session start notification');
+        return { success: false, error: 'No operator email found' };
+      }
+    } catch (error) {
+      logger.error('[SCAN_VALIDATION] Error sending session start notification:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Envoie une notification de session de scan terminée
+   * @param {Object} sessionData - Données de la session
+   * @returns {Promise<Object>} Résultat de l'envoi
+   */
+  async sendSessionEndNotification(sessionData) {
+    try {
+      if (sessionData.operatorEmail) {
+        const result = await notificationClient.sendEmail({
+          to: sessionData.operatorEmail,
+          template: 'scan-session-ended',
+          subject: 'Session de scan terminée',
+          data: {
+            sessionId: sessionData.id,
+            eventName: sessionData.eventName,
+            location: sessionData.location,
+            startTime: new Date(sessionData.startedAt).toLocaleString('fr-FR'),
+            endTime: new Date(sessionData.endedAt).toLocaleString('fr-FR'),
+            totalScans: sessionData.totalScans,
+            duration: sessionData.duration
+          },
+          priority: 'normal'
+        });
+
+        if (!result.success) {
+          logger.error('[SCAN_VALIDATION] Failed to send session end notification:', result.error);
+        }
+
+        return result;
+      } else {
+        logger.warn('[SCAN_VALIDATION] No operator email found for session end notification');
+        return { success: false, error: 'No operator email found' };
+      }
+    } catch (error) {
+      logger.error('[SCAN_VALIDATION] Error sending session end notification:', error);
+      return { success: false, error: error.message };
+    }
   }
 }
 
