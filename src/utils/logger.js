@@ -111,6 +111,10 @@ logger.qr = (message, meta = {}) => {
   logger.info(`[QR] ${message}`, { ...meta, category: 'qr' });
 };
 
+logger.database = (message, meta = {}) => {
+  logger.info(`[DATABASE] ${message}`, { ...meta, category: 'database' });
+};
+
 logger.offline = (message, meta = {}) => {
   logger.info(`[OFFLINE] ${message}`, { ...meta, category: 'offline' });
 };
