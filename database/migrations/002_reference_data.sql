@@ -128,8 +128,10 @@ WHERE NOT EXISTS (
 -- ========================================
 -- Opérateurs de scan par défaut (IDEMPOTENT)
 -- ========================================
-INSERT INTO scan_operators (access_code, permissions, is_active, created_at, updated_at)
+INSERT INTO scan_operators (user_id, event_id, access_code, permissions, is_active, created_at, updated_at)
 SELECT 
+    0,
+    0,
     'SYSTEM_OPERATOR',
     '{"can_scan": true, "can_validate": true, "can_view_stats": true, "is_system": true}',
     true,
@@ -139,8 +141,10 @@ WHERE NOT EXISTS (
     SELECT 1 FROM scan_operators WHERE access_code = 'SYSTEM_OPERATOR' AND deleted_at IS NULL
 );
 
-INSERT INTO scan_operators (access_code, permissions, is_active, created_at, updated_at)
+INSERT INTO scan_operators (user_id, event_id, access_code, permissions, is_active, created_at, updated_at)
 SELECT 
+    0,
+    0,
     'DEMO_OPERATOR',
     '{"can_scan": true, "can_validate": false, "can_view_stats": false, "is_demo": true}',
     true,
@@ -153,8 +157,9 @@ WHERE NOT EXISTS (
 -- ========================================
 -- Règles de validation par défaut (IDEMPOTENT)
 -- ========================================
-INSERT INTO validation_rules (rule_type, parameters, is_active, priority, created_at, updated_at)
+INSERT INTO validation_rules (event_id, rule_type, parameters, is_active, priority, created_at, updated_at)
 SELECT 
+    0,
     'ticket_expiry',
     '{"hours": 24, "grace_period": 1}',
     true,
@@ -165,8 +170,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM validation_rules WHERE rule_type = 'ticket_expiry' AND deleted_at IS NULL
 );
 
-INSERT INTO validation_rules (rule_type, parameters, is_active, priority, created_at, updated_at)
+INSERT INTO validation_rules (event_id, rule_type, parameters, is_active, priority, created_at, updated_at)
 SELECT 
+    0,
     'duplicate_check',
     '{"check_interval": 1000, "max_scans": 5}',
     true,
@@ -177,8 +183,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM validation_rules WHERE rule_type = 'duplicate_check' AND deleted_at IS NULL
 );
 
-INSERT INTO validation_rules (rule_type, parameters, is_active, priority, created_at, updated_at)
+INSERT INTO validation_rules (event_id, rule_type, parameters, is_active, priority, created_at, updated_at)
 SELECT 
+    0,
     'location_validation',
     '{"allowed_locations": ["main_entrance", "side_entrance"]}',
     true,
@@ -189,8 +196,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM validation_rules WHERE rule_type = 'location_validation' AND deleted_at IS NULL
 );
 
-INSERT INTO validation_rules (rule_type, parameters, is_active, priority, created_at, updated_at)
+INSERT INTO validation_rules (event_id, rule_type, parameters, is_active, priority, created_at, updated_at)
 SELECT 
+    0,
     'time_window',
     '{"start_time": "09:00", "end_time": "23:00", "timezone": "Europe/Paris"}',
     true,
@@ -201,8 +209,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM validation_rules WHERE rule_type = 'time_window' AND deleted_at IS NULL
 );
 
-INSERT INTO validation_rules (rule_type, parameters, is_active, priority, created_at, updated_at)
+INSERT INTO validation_rules (event_id, rule_type, parameters, is_active, priority, created_at, updated_at)
 SELECT 
+    0,
     'rate_limiting',
     '{"max_scans_per_minute": 10, "max_scans_per_hour": 100}',
     true,
