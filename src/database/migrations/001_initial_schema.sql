@@ -1,107 +1,158 @@
 -- ============================================
 -- SCAN VALIDATION SERVICE - Initial Schema
--- Diagram: /event-planner-documents/scan-validation-diagram.md
+-- Diagram: /event-planner-documents/scan-validator-diagram.md
+-- Aligné avec le code (scan.repository.js)
 -- ============================================
 
--- Créer la base de données si elle n'existe pas
-CREATE DATABASE IF NOT EXISTS event_planner_scan_validation;
+-- Extension UUID pour gen_random_uuid()
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- Extension pour les UUID
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- Table des scans de tickets
-CREATE TABLE IF NOT EXISTS ticket_scans (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    ticket_id UUID NOT NULL,
-    ticket_code VARCHAR(255) NOT NULL,
-    event_id UUID NOT NULL,
-    scanner_id UUID,
-    scan_status VARCHAR(20) DEFAULT 'valid' CHECK (scan_status IN ('valid', 'invalid', 'already_used', 'expired', 'cancelled')),
-    scan_time TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    scan_location VARCHAR(255),
-    scanner_device VARCHAR(100),
-    validation_result JSONB DEFAULT '{}',
-    error_message TEXT,
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- ============================================
+-- Table des opérateurs de scan
+-- ============================================
+CREATE TABLE IF NOT EXISTS scan_operators (
+    id BIGSERIAL PRIMARY KEY,
+    uid UUID NOT NULL DEFAULT gen_random_uuid(),
+    user_id BIGINT NOT NULL,
+    event_id BIGINT,
+    access_code VARCHAR(255) UNIQUE NOT NULL,
+    permissions JSONB,
+    is_active BOOLEAN DEFAULT true,
+    last_login_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_by BIGINT,
+    updated_by BIGINT,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by BIGINT
 );
 
--- Table des tickets (référence pour validation)
-CREATE TABLE IF NOT EXISTS tickets (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    event_id UUID NOT NULL,
-    guest_id UUID,
-    ticket_code VARCHAR(255) UNIQUE NOT NULL,
-    qr_code_data TEXT,
-    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'used', 'expired', 'cancelled')),
-    issued_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    used_at TIMESTAMP WITH TIME ZONE,
-    expires_at TIMESTAMP WITH TIME ZONE,
-    scan_count INTEGER DEFAULT 0,
-    max_scans INTEGER DEFAULT 1,
-    ticket_type_id UUID,
-    metadata JSONB DEFAULT '{}'
+-- ============================================
+-- Table des règles de validation
+-- ============================================
+CREATE TABLE IF NOT EXISTS validation_rules (
+    id BIGSERIAL PRIMARY KEY,
+    uid UUID NOT NULL DEFAULT gen_random_uuid(),
+    event_id BIGINT NOT NULL,
+    rule_type VARCHAR(100) NOT NULL,
+    parameters JSONB,
+    is_active BOOLEAN DEFAULT true,
+    priority INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_by BIGINT,
+    updated_by BIGINT,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by BIGINT
 );
 
--- Table des événements (référence)
-CREATE TABLE IF NOT EXISTS events (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    start_date TIMESTAMP WITH TIME ZONE NOT NULL,
-    end_date TIMESTAMP WITH TIME ZONE NOT NULL,
+-- ============================================
+-- Table des sessions de scan
+-- ============================================
+CREATE TABLE IF NOT EXISTS scan_sessions (
+    id BIGSERIAL PRIMARY KEY,
+    uid UUID NOT NULL DEFAULT gen_random_uuid(),
+    scan_operator_id BIGINT REFERENCES scan_operators(id) ON DELETE SET NULL,
+    event_id BIGINT,
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    ended_at TIMESTAMP WITH TIME ZONE,
+    device_info JSONB,
     location VARCHAR(255),
-    status VARCHAR(20) DEFAULT 'active',
-    validation_settings JSONB DEFAULT '{}',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_by BIGINT,
+    updated_by BIGINT,
+    deleted_at TIMESTAMP WITH TIME ZONE,
+    deleted_by BIGINT
+);
+
+-- ============================================
+-- Table des logs de scan
+-- ============================================
+CREATE TABLE IF NOT EXISTS scan_logs (
+    id BIGSERIAL PRIMARY KEY,
+    uid UUID NOT NULL DEFAULT gen_random_uuid(),
+    scan_session_id BIGINT REFERENCES scan_sessions(id) ON DELETE SET NULL,
+    scanned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    result VARCHAR(20) NOT NULL CHECK (result IN ('VALID', 'INVALID', 'ALREADY_USED', 'EXPIRED', 'FRAUD_DETECTED')),
+    location VARCHAR(255),
+    device_id VARCHAR(255),
+    ticket_id BIGINT,
+    ticket_data JSONB,
+    validation_details JSONB,
+    fraud_flags JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_by BIGINT
+);
+
+-- ============================================
+-- Table des tentatives de fraude
+-- ============================================
+CREATE TABLE IF NOT EXISTS fraud_attempts (
+    id BIGSERIAL PRIMARY KEY,
+    uid UUID NOT NULL DEFAULT gen_random_uuid(),
+    scan_log_id BIGINT REFERENCES scan_logs(id) ON DELETE CASCADE,
+    fraud_type VARCHAR(100) NOT NULL,
+    severity VARCHAR(20) DEFAULT 'medium',
+    details JSONB,
+    ip_address INET,
+    user_agent TEXT,
+    blocked BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_by BIGINT
+);
+
+-- ============================================
+-- Table cache des tickets scannés
+-- ============================================
+CREATE TABLE IF NOT EXISTS scanned_tickets_cache (
+    id BIGSERIAL PRIMARY KEY,
+    ticket_id BIGINT UNIQUE NOT NULL,
+    first_scan_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_scan_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    scan_count INTEGER DEFAULT 1,
+    scan_locations JSONB,
+    is_blocked BOOLEAN DEFAULT false,
+    block_reason TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Table des scanners/appareils de validation
-CREATE TABLE IF NOT EXISTS scanners (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    device_name VARCHAR(255) NOT NULL,
-    device_type VARCHAR(50) DEFAULT 'mobile',
-    location VARCHAR(255),
-    status VARCHAR(20) DEFAULT 'active',
-    operator_id UUID,
-    last_scan_time TIMESTAMP WITH TIME ZONE,
-    total_scans INTEGER DEFAULT 0,
-    settings JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- ============================================
+-- Indexes
+-- ============================================
+CREATE INDEX IF NOT EXISTS idx_scan_operators_access_code ON scan_operators(access_code) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scan_operators_active ON scan_operators(is_active) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scan_operators_user_id ON scan_operators(user_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scan_operators_event_id ON scan_operators(event_id) WHERE deleted_at IS NULL;
 
--- Table des logs de validation
-CREATE TABLE IF NOT EXISTS validation_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    scan_id UUID REFERENCES ticket_scans(id) ON DELETE CASCADE,
-    log_level VARCHAR(10) DEFAULT 'info',
-    message TEXT NOT NULL,
-    details JSONB DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+CREATE INDEX IF NOT EXISTS idx_validation_rules_event_id ON validation_rules(event_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_validation_rules_type ON validation_rules(rule_type) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_validation_rules_active ON validation_rules(is_active) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_validation_rules_priority ON validation_rules(priority) WHERE deleted_at IS NULL;
 
--- Index pour les performances
-CREATE INDEX IF NOT EXISTS idx_ticket_scans_ticket_id ON ticket_scans(ticket_id);
-CREATE INDEX IF NOT EXISTS idx_ticket_scans_ticket_code ON ticket_scans(ticket_code);
-CREATE INDEX IF NOT EXISTS idx_ticket_scans_event_id ON ticket_scans(event_id);
-CREATE INDEX IF NOT EXISTS idx_ticket_scans_scan_time ON ticket_scans(scan_time);
-CREATE INDEX IF NOT EXISTS idx_ticket_scans_scan_status ON ticket_scans(scan_status);
-CREATE INDEX IF NOT EXISTS idx_tickets_ticket_code ON tickets(ticket_code);
-CREATE INDEX IF NOT EXISTS idx_tickets_event_id ON tickets(event_id);
-CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
-CREATE INDEX IF NOT EXISTS idx_scanners_status ON scanners(status);
-CREATE INDEX IF NOT EXISTS idx_validation_logs_scan_id ON validation_logs(scan_id);
-CREATE INDEX IF NOT EXISTS idx_validation_logs_created_at ON validation_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_scan_sessions_operator_id ON scan_sessions(scan_operator_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scan_sessions_event_id ON scan_sessions(event_id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_scan_sessions_started_at ON scan_sessions(started_at) WHERE deleted_at IS NULL;
 
--- Table de migration pour suivre les versions
-CREATE TABLE IF NOT EXISTS migration_history (
-    id SERIAL PRIMARY KEY,
-    filename VARCHAR(255) NOT NULL UNIQUE,
-    executed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+CREATE INDEX IF NOT EXISTS idx_scan_logs_session_id ON scan_logs(scan_session_id);
+CREATE INDEX IF NOT EXISTS idx_scan_logs_scanned_at ON scan_logs(scanned_at);
+CREATE INDEX IF NOT EXISTS idx_scan_logs_result ON scan_logs(result);
+CREATE INDEX IF NOT EXISTS idx_scan_logs_ticket_id ON scan_logs(ticket_id);
 
--- Inscrire cette migration
-INSERT INTO migration_history (filename) VALUES ('001_initial_schema.sql')
-ON CONFLICT (filename) DO NOTHING;
+CREATE INDEX IF NOT EXISTS idx_fraud_attempts_type ON fraud_attempts(fraud_type);
+CREATE INDEX IF NOT EXISTS idx_fraud_attempts_created_at ON fraud_attempts(created_at);
+CREATE INDEX IF NOT EXISTS idx_fraud_attempts_blocked ON fraud_attempts(blocked);
+
+CREATE INDEX IF NOT EXISTS idx_scanned_tickets_cache_ticket_id ON scanned_tickets_cache(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_scanned_tickets_cache_blocked ON scanned_tickets_cache(is_blocked);
+
+-- ============================================
+-- Commentaires
+-- ============================================
+COMMENT ON TABLE scan_sessions IS 'Sessions de scan pour la validation de tickets';
+COMMENT ON TABLE scan_logs IS 'Logs des scans de tickets avec détails de validation';
+COMMENT ON TABLE scan_operators IS 'Opérateurs autorisés pour le scan';
+COMMENT ON TABLE validation_rules IS 'Règles de validation des tickets';
+COMMENT ON TABLE fraud_attempts IS 'Tentatives de fraude détectées';
+COMMENT ON TABLE scanned_tickets_cache IS 'Cache des tickets scannés pour performance';
