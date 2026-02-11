@@ -18,7 +18,10 @@ router.post('/validate',
     scanContext: Joi.object({
       location: Joi.string().optional(),
       deviceId: Joi.string().optional(),
-      operatorId: Joi.string().optional()
+      operatorId: Joi.alternatives().try(
+        Joi.number().integer().positive(),
+        Joi.string()
+      ).optional()
       // NOTE : operatorId est un identifiant technique, pas un utilisateur métier
     }).optional()
   }),
@@ -29,11 +32,17 @@ router.post('/validate',
 // NOTE : Service technique - validation sans connexion réseau
 router.post('/validate-offline',
   ValidationMiddleware.validate({
-    ticketId: Joi.string().required(),
+    ticketId: Joi.alternatives().try(
+      Joi.number().integer().positive(),
+      Joi.string()
+    ).required(),
     scanContext: Joi.object({
       location: Joi.string().optional(),
       deviceId: Joi.string().optional(),
-      operatorId: Joi.string().optional(),
+      operatorId: Joi.alternatives().try(
+        Joi.number().integer().positive(),
+        Joi.string()
+      ).optional(),
       offlineMode: Joi.boolean().default(true)
     }).optional()
   }),
@@ -44,7 +53,10 @@ router.post('/validate-offline',
 // NOTE : Lecture seule des données techniques de scan
 router.get('/history/ticket/:ticketId',
   ValidationMiddleware.validateParams({
-    ticketId: Joi.string().required()
+    ticketId: Joi.alternatives().try(
+      Joi.number().integer().positive(),
+      Joi.string()
+    ).required()
   }),
   ValidationMiddleware.validateQuery({
     limit: Joi.number().integer().min(1).max(100).default(50),
@@ -57,7 +69,10 @@ router.get('/history/ticket/:ticketId',
 // NOTE : Endpoint interne pour consultation cross-service
 router.get('/ticket/:ticketId/logs',
   ValidationMiddleware.validateParams({
-    ticketId: Joi.string().required()
+    ticketId: Joi.alternatives().try(
+      Joi.number().integer().positive(),
+      Joi.string()
+    ).required()
   }),
   scansController.getTicketScanLogs
 );
@@ -66,7 +81,10 @@ router.get('/ticket/:ticketId/logs',
 // NOTE : Données techniques uniquement, pas d'analytics métier
 router.get('/stats/event/:eventId',
   ValidationMiddleware.validateParams({
-    eventId: Joi.string().required()
+    eventId: Joi.alternatives().try(
+      Joi.number().integer().positive(),
+      Joi.string()
+    ).required()
   }),
   ValidationMiddleware.validateQuery({
     startDate: Joi.date().optional(),

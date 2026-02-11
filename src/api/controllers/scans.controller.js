@@ -55,7 +55,7 @@ class ScansController {
             sessionId: null,
             ticketId: 'UNKNOWN',
             eventId: 'UNKNOWN',
-            result: validationResult.code?.toLowerCase() || 'validation_error', // CORRIGÉ: minuscule pour l'enum
+            result: 'invalid',
             scanContext,
             timestamp: new Date().toISOString(),
             validationTime: validationResult.validationTime,
@@ -79,7 +79,7 @@ class ScansController {
         sessionId: null,
         ticketId: validationResult.ticket.id,
         eventId: validationResult.ticket.eventId,
-        result: 'valid', // CORRIGÉ: minuscule pour l'enum
+        result: 'valid',
         scanContext,
         timestamp: new Date().toISOString(),
         validationTime: validationResult.validationTime,

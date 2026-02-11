@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS scan_logs (
     uid UUID NOT NULL DEFAULT gen_random_uuid(),
     scan_session_id BIGINT REFERENCES scan_sessions(id) ON DELETE SET NULL,
     scanned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    result VARCHAR(20) NOT NULL CHECK (result IN ('VALID', 'INVALID', 'ALREADY_USED', 'EXPIRED', 'FRAUD_DETECTED')),
+    result VARCHAR(20) NOT NULL CHECK (result IN ('valid', 'invalid', 'already_used', 'expired', 'fraud_detected')),
     location VARCHAR(255),
     device_id VARCHAR(255),
     ticket_id BIGINT,

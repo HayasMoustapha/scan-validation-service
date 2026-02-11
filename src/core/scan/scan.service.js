@@ -46,6 +46,7 @@ class ScanService {
 
       const session = await scanRepository.createScanSession({
         operatorId: sessionData.operatorId,
+        eventId: sessionData.eventId || null,
         location: sessionData.location,
         deviceInfo: sessionData.deviceInfo,
         createdBy: sessionData.createdBy
@@ -65,6 +66,7 @@ class ScanService {
           id: session.id,
           uid: session.uid,
           startedAt: session.started_at,
+          eventId: session.event_id || null,
           location: session.location,
           deviceInfo: session.device_info
         }
@@ -144,10 +146,14 @@ class ScanService {
       this.stats.totalScans++;
 
       // Étape 1: Enregistrer le log de scan
+      const normalizedResult = String(scanData.result || 'invalid').toLowerCase();
+      const allowedResults = new Set(['valid', 'invalid', 'already_used', 'expired', 'fraud_detected']);
+      const safeResult = allowedResults.has(normalizedResult) ? normalizedResult : 'invalid';
+
       const scanLog = await scanRepository.createScanLog({
         sessionId: scanData.sessionId,
         scannedAt: scanData.timestamp,
-        result: scanData.result, // CORRIGÉ: Ne pas mettre en majuscules, l'enum attend 'valid'
+        result: safeResult,
         location: scanData.scanContext?.location,
         deviceId: scanData.scanContext?.deviceId,
         ticketId: scanData.ticketId,

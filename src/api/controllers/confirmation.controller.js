@@ -168,7 +168,7 @@ async function recordScanLog(ticketId, validationResult, scanMetadata) {
     
     await client.query(insertQuery, [
       null, // scan_session_id (à implémenter plus tard)
-      validationResult.success ? 'VALID' : 'INVALID',
+      validationResult.success ? 'valid' : 'invalid',
       validationResult.location,
       validationResult.device_id,
       ticketId,
@@ -210,7 +210,7 @@ async function recordFraudAttempt(ticketId, validationResult, scanMetadata) {
     const scanLogQuery = `
       INSERT INTO scan_logs 
       (scan_session_id, scanned_at, result, location, device_id, ticket_id, ticket_data, validation_details, fraud_flags, created_at)
-      VALUES ($1, NOW(), 'FRAUD_DETECTED', $2, $3, $4, $5, $6, $7, NOW())
+      VALUES ($1, NOW(), 'fraud_detected', $2, $3, $4, $5, $6, $7, NOW())
       RETURNING id
     `;
     

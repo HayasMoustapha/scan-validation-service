@@ -37,14 +37,15 @@ class ScanRepository {
     try {
       const query = `
         INSERT INTO scan_sessions (
-          uid, scan_operator_id, location, device_info, created_by
+          uid, scan_operator_id, event_id, location, device_info, created_by
         ) VALUES (
-          gen_random_uuid(), $1, $2, $3, $4
-        ) RETURNING id, uid, started_at, device_info, location
+          gen_random_uuid(), $1, $2, $3, $4, $5
+        ) RETURNING id, uid, started_at, device_info, location, event_id
       `;
 
       const values = [
         sessionData.operatorId,
+        sessionData.eventId || null,
         sessionData.location,
         JSON.stringify(sessionData.deviceInfo || {}),
         sessionData.createdBy
@@ -56,7 +57,8 @@ class ScanRepository {
       logger.database('Scan session created', {
         sessionId: session.id,
         uid: session.uid,
-        operatorId: sessionData.operatorId
+        operatorId: sessionData.operatorId,
+        eventId: sessionData.eventId || null
       });
 
       return session;
@@ -439,7 +441,7 @@ class ScanRepository {
   async getActiveScanSessions(filters = {}) {
     try {
       let query = `
-        SELECT id, uid, started_at, scan_operator_id, location, device_info
+        SELECT id, uid, started_at, scan_operator_id, event_id, location, device_info
         FROM scan_sessions
         WHERE ended_at IS NULL
       `;
@@ -471,6 +473,7 @@ class ScanRepository {
         uid: row.uid,
         startedAt: row.started_at,
         operatorId: row.scan_operator_id,
+        eventId: row.event_id,
         location: row.location,
         deviceInfo: row.device_info
       }));
