@@ -411,17 +411,24 @@ class ScanRepository {
         uniqueTickets: stats.unique_tickets
       });
 
+      const totalScans = parseInt(stats.total_scans || 0);
+      const uniqueTickets = parseInt(stats.unique_tickets || 0);
+      const successfulScans = parseInt(stats.successful_scans || 0);
+      const failedScans = parseInt(stats.failed_scans || 0);
+      const fraudAttempts = parseInt(stats.fraud_attempts || 0);
+      const locations = Array.isArray(stats.locations) ? stats.locations.filter(loc => loc !== null) : [];
+
       return {
         eventId,
         period: { startDate, endDate },
-        totalScans: parseInt(stats.total_scans),
-        uniqueTickets: parseInt(stats.unique_tickets),
-        successfulScans: parseInt(stats.successful_scans),
-        failedScans: parseInt(stats.failed_scans),
-        fraudAttempts: parseInt(stats.fraud_attempts),
-        locations: stats.locations.filter(loc => loc !== null),
-        successRate: stats.total_scans > 0 
-          ? ((stats.successful_scans / stats.total_scans) * 100).toFixed(2) + '%'
+        totalScans,
+        uniqueTickets,
+        successfulScans,
+        failedScans,
+        fraudAttempts,
+        locations,
+        successRate: totalScans > 0 
+          ? ((successfulScans / totalScans) * 100).toFixed(2) + '%'
           : '0%'
       };
     } catch (error) {

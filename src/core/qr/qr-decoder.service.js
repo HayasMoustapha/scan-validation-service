@@ -10,7 +10,9 @@ const logger = require('../../utils/logger');
 class QRDecoderService {
   constructor() {
     // Clés partagées avec ticket-generator pour la validation
-    this.hmacSecret = process.env.QR_HMAC_SECRET || 'default-hmac-secret-change-in-production';
+    this.hmacSecret = process.env.QR_HMAC_SECRET
+      || process.env.TICKET_SIGNATURE_SECRET
+      || 'default-secret-change-in-production';
     this.rsaPublicKey = this.loadRSAPublicKey();
     
     // Versions supportées des QR codes
@@ -129,6 +131,9 @@ class QRDecoderService {
           }
         };
       }
+
+      // Normaliser le format (support legacy ticket-generator)
+      decodedData = this.normalizeQRCodeData(decodedData);
 
       // Validation de la structure et des métadonnées
       const structureValidation = this.validateQRStructure(decodedData);
@@ -414,6 +419,18 @@ class QRDecoderService {
    */
   async validateCryptographicSignature(data, formatType) {
     try {
+      if (data?.metadata?.originalData?.signature) {
+        const legacyResult = this.validateLegacyHMACSignature(data.metadata.originalData);
+        if (legacyResult.valid) {
+          return legacyResult;
+        }
+      }
+
+      // Support legacy ticket-generator format
+      if (data && data.id && !data.ticketId) {
+        return this.validateLegacyHMACSignature(data);
+      }
+
       const algorithm = data.algorithm || 'HS256';
       
       if (algorithm === 'HS256') {
@@ -461,18 +478,32 @@ class QRDecoderService {
       .digest('hex');
 
     // Comparaison sécurisée des signatures
-    let isValid = crypto.timingSafeEqual(
-      Buffer.from(data.signature, 'hex'),
-      Buffer.from(expectedSignature, 'hex')
-    );
+    let isValid = false;
+    try {
+      isValid = crypto.timingSafeEqual(
+        Buffer.from(data.signature, 'hex'),
+        Buffer.from(expectedSignature, 'hex')
+      );
+    } catch (error) {
+      isValid = false;
+    }
 
-    // En mode développement, accepter les signatures mock pour PNG Base64
-    if (process.env.NODE_ENV === 'development' && formatType === 'PNG-Base64') {
-      isValid = true;
-      logger.qr('Development mode: accepting mock signature for PNG Base64', {
-        format: formatType,
-        ticketId: data.ticketId
-      });
+    // Compat PNG Base64: accepter la signature générée sur JSON complet
+    if (!isValid && formatType === 'PNG-Base64') {
+      const { signature, ...dataToSign } = data;
+      const jsonSignature = crypto
+        .createHmac('sha256', this.hmacSecret)
+        .update(JSON.stringify(dataToSign))
+        .digest('hex');
+
+      try {
+        isValid = crypto.timingSafeEqual(
+          Buffer.from(data.signature, 'hex'),
+          Buffer.from(jsonSignature, 'hex')
+        );
+      } catch (error) {
+        isValid = false;
+      }
     }
 
     return {
@@ -533,6 +564,47 @@ class QRDecoderService {
   }
 
   /**
+   * Valide une signature HMAC pour le format legacy (ticket-generator)
+   * Signature basée sur JSON.stringify des données sans "signature"
+   */
+  validateLegacyHMACSignature(data) {
+    if (!data.signature) {
+      return {
+        valid: false,
+        error: 'Signature HMAC manquante',
+        details: { reason: 'missing_signature' }
+      };
+    }
+
+    const { signature, ...dataToSign } = data;
+    const expectedSignature = crypto
+      .createHmac('sha256', this.hmacSecret)
+      .update(JSON.stringify(dataToSign))
+      .digest('hex');
+
+    let isValid = false;
+    try {
+      isValid = crypto.timingSafeEqual(
+        Buffer.from(data.signature, 'hex'),
+        Buffer.from(expectedSignature, 'hex')
+      );
+    } catch (error) {
+      isValid = false;
+    }
+
+    return {
+      valid: isValid,
+      error: isValid ? null : 'Signature HMAC invalide',
+      method: 'HMAC-SHA256',
+      details: isValid ? null : {
+        reason: 'signature_mismatch',
+        expected: expectedSignature.substring(0, 16) + '...',
+        received: data.signature.substring(0, 16) + '...'
+      }
+    };
+  }
+
+  /**
    * Crée la chaîne de caractères utilisée pour la signature
    * @param {Object} data - Données du QR code (sans la signature)
    * @returns {string} Chaîne à signer
@@ -562,7 +634,10 @@ class QRDecoderService {
    * @returns {Object} Résultat de la validation
    */
   validateQRStructure(data) {
-    const requiredFields = ['ticketId', 'eventId', 'ticketType', 'issuedAt', 'expiresAt'];
+    const isLegacy = data && data.id && !data.ticketId;
+    const requiredFields = isLegacy
+      ? ['id', 'eventId', 'type', 'createdAt']
+      : ['ticketId', 'eventId', 'ticketType', 'issuedAt', 'expiresAt'];
     
     for (const field of requiredFields) {
       if (!data[field]) {
@@ -615,6 +690,35 @@ class QRDecoderService {
     }
 
     return { valid: true };
+  }
+
+  /**
+   * Normalise les données legacy vers le format standard
+   */
+  normalizeQRCodeData(data) {
+    if (!data || data.ticketId) {
+      return data;
+    }
+
+    if (data.id) {
+      const issuedAt = data.createdAt || data.timestamp || new Date().toISOString();
+      const expiresAt = data.expiresAt || new Date(
+        new Date(issuedAt).getTime() + (this.maxQRValidity * 1000)
+      ).toISOString();
+      return {
+        ticketId: String(data.id),
+        eventId: String(data.eventId || ''),
+        ticketType: data.type || 'standard',
+        userId: data.userId ? String(data.userId) : undefined,
+        issuedAt,
+        expiresAt,
+        version: data.version || 'legacy',
+        algorithm: data.algorithm || 'HS256',
+        signature: data.signature
+      };
+    }
+
+    return data;
   }
 
   /**
