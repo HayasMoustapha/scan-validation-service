@@ -20,6 +20,7 @@
    - DB + Redis
    - `JWT_SECRET`
    - URLs des services nécessaires (core / ticket)
+3. Valider les endpoints de scan en local avant prod
 
 ---
 
@@ -44,4 +45,3 @@ npm run start
 ```
 GET http://localhost:3005/api/health
 ```
-
