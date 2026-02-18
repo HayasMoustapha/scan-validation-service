@@ -295,6 +295,11 @@ class ScanValidationServer {
       });
     }
 
+    // Documentation Swagger — http://localhost:3005/docs
+    const { specs: swaggerSpecs, swaggerUi, swaggerUiOptions } = require('./config/swagger');
+    this.app.use('/docs', swaggerUi.serve);
+    this.app.get('/docs', swaggerUi.setup(swaggerSpecs, swaggerUiOptions));
+
     // 🚫 ROUTE 404 - Gestion des routes non trouvées
     // Route par défaut pour toutes les URLs non gérées
     this.app.use((req, res) => {
