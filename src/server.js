@@ -77,7 +77,7 @@ class ScanValidationServer {
     // 🌐 CORS - Partage de ressources entre origines
     // Permet à event-planner-core d'appeler ce service
     this.app.use(cors({
-      origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+      origin: [process.env.CORS_ORIGIN || 'http://localhost:3000', 'http://localhost:3099'],
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
