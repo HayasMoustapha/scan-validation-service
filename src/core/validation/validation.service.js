@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const qrDecoderService = require('../qr/qr-decoder.service');
 const eventCoreClient = require('../clients/event-core.client');
+const scanService = require('../scan/scan.service');
 const logger = require('../../utils/logger');
 
 /**
@@ -13,6 +14,9 @@ class ValidationService {
     this.maxConcurrentScans = parseInt(process.env.MAX_CONCURRENT_SCANS) || 100;
     this.scanTimeout = parseInt(process.env.SCAN_TIMEOUT) || 15000; // 15s
     this.enableFraudDetection = process.env.ENABLE_FRAUD_DETECTION === 'true';
+    this.allowInvalidQRFallback = process.env.SCAN_ALLOW_INVALID_QR_FALLBACK === 'true';
+    this.forceMockBusinessValidation =
+      process.env.SCAN_FORCE_MOCK_BUSINESS_VALIDATION === 'true';
     
     // Cache pour les validations en cours (prévention des scans concurrents)
     this.pendingScans = new Map();
@@ -95,8 +99,7 @@ class ValidationService {
             this.stats.fraudAttempts++;
           }
 
-          // En mode non-production, on autorise un fallback pour les workflows
-          if (process.env.NODE_ENV !== 'production') {
+          if (this.allowInvalidQRFallback) {
             return {
               success: true,
               validationId,
@@ -126,9 +129,7 @@ class ValidationService {
         // Étape 4: Validation métier via event-planner-core
         let businessValidation;
         
-        // FORCER MODE DÉVELOPPEMENT pour tester la persistance
-        if (true || process.env.NODE_ENV === 'development') {
-          // Mode développement: simulation de validation business
+        if (this.forceMockBusinessValidation) {
           businessValidation = {
             success: true,
             data: {
@@ -154,7 +155,7 @@ class ValidationService {
             }
           };
           
-          logger.validation('Development mode: using mock business validation with ticket update', {
+          logger.validation('Using forced mock business validation', {
             ticketId: qrValidation.data.ticketId,
             eventId: qrValidation.data.eventId,
             ticketStatus: 'VALIDATED'
@@ -184,11 +185,24 @@ class ValidationService {
         }
 
         // Étape 5: Enregistrement du scan (non bloquant)
+        const resolvedTicketId =
+          businessValidation.data?.ticket?.id ||
+          businessValidation.data?.ticket_id ||
+          qrValidation.data.ticketId;
+        const resolvedEventId =
+          businessValidation.data?.event?.id ||
+          businessValidation.data?.ticket?.eventId ||
+          qrValidation.data.eventId;
+        const resolvedTicketType =
+          businessValidation.data?.ticket?.ticketType ||
+          businessValidation.data?.ticket?.type ||
+          qrValidation.data.ticketType;
+
         const scanRecord = {
           validationId,
           sessionId: null, // CORRIGÉ: sessionId requis par scanService
-          ticketId: qrValidation.data.ticketId,
-          eventId: qrValidation.data.eventId,
+          ticketId: resolvedTicketId,
+          eventId: resolvedEventId,
           result: 'valid', // CORRIGÉ: minuscule pour l'enum
           scanContext,
           qrMetadata: qrValidation.validationInfo,
@@ -198,32 +212,36 @@ class ValidationService {
           fraudFlags: null // CORRIGÉ: fraudFlags requis
         };
 
-        // Enregistrer le scan de manière ASYNCHRONE (non bloquant)
-        this.recordScanAsync(scanRecord);
-
         this.stats.successfulScans++;
 
         logger.validation('Ticket validation completed successfully', {
           validationId,
-          ticketId: qrValidation.data.ticketId,
-          eventId: qrValidation.data.eventId,
+          ticketId: resolvedTicketId,
+          eventId: resolvedEventId,
           validationTime: Date.now() - startTime
         });
+
+        const validatedAt =
+          businessValidation.data?.validation?.validated_at ||
+          businessValidation.data?.validated_at ||
+          businessValidation.data?.ticket?.validated_at ||
+          new Date().toISOString();
 
         return {
           success: true,
           validationId,
           ticket: {
-            id: qrValidation.data.ticketId,
-            eventId: qrValidation.data.eventId,
-            ticketType: qrValidation.data.ticketType,
-            status: 'VALID',
-            scannedAt: new Date().toISOString()
+            id: resolvedTicketId,
+            eventId: resolvedEventId,
+            ticketType: resolvedTicketType,
+            type: resolvedTicketType,
+            status: businessValidation.data?.ticket?.status || 'VALID',
+            scannedAt: validatedAt
           },
           event: businessValidation.data.event,
           scanInfo: {
             scanId: validationId,
-            timestamp: new Date().toISOString(),
+            timestamp: validatedAt,
             location: scanContext.location,
             deviceId: scanContext.deviceId
           },
@@ -339,6 +357,7 @@ class ValidationService {
     const errorMapping = {
       'TICKET_NOT_FOUND': 'INVALID',
       'TICKET_ALREADY_USED': 'ALREADY_USED',
+      'TICKET_ALREADY_VALIDATED': 'ALREADY_USED',
       'TICKET_EXPIRED': 'EXPIRED',
       'TICKET_NOT_ACTIVE': 'INVALID',
       'EVENT_NOT_FOUND': 'NOT_AUTHORIZED',

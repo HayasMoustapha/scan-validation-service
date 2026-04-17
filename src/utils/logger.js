@@ -136,6 +136,10 @@ logger.external = (message, meta = {}) => {
   logger.info(`[EXTERNAL] ${message}`, { ...meta, category: 'external' });
 };
 
+logger.core = (message, meta = {}) => {
+  logger.info(`[CORE] ${message}`, { ...meta, category: 'core' });
+};
+
 logger.fraud = (message, meta = {}) => {
   logger.warn(`[FRAUD] ${message}`, { ...meta, category: 'fraud' });
 };

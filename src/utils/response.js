@@ -187,13 +187,15 @@ function paginatedResponse(data, pagination, message = 'Données récupérées a
  * @returns {Object} Réponse formatée
  */
 function validationResponse(validationData, meta = {}) {
+  const ticketType = validationData.ticket.ticketType || validationData.ticket.type || null;
+
   return {
     success: true,
     message: 'Ticket validé avec succès',
     data: {
       ticketId: validationData.ticket.id,
       eventId: validationData.ticket.eventId,
-      ticketType: validationData.ticket.type,
+      ticketType,
       status: validationData.ticket.status,
       scannedAt: validationData.ticket.scannedAt,
       validationTime: validationData.validationTime,

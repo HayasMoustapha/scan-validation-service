@@ -7,8 +7,18 @@ const logger = require('../../utils/logger');
  */
 class ScanRepository {
   constructor() {
+    const connectionConfig = process.env.DATABASE_URL
+      ? { connectionString: process.env.DATABASE_URL }
+      : {
+          host: process.env.DB_HOST || 'localhost',
+          port: parseInt(process.env.DB_PORT) || 5432,
+          database: process.env.DB_NAME || 'event_planner_scan',
+          user: process.env.DB_USER || 'postgres',
+          password: String(process.env.DB_PASSWORD || 'postgres'),
+        };
+
     this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
+      ...connectionConfig,
       max: parseInt(process.env.DB_POOL_MAX) || 20,
       idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT) || 30000,
       connectionTimeoutMillis: parseInt(process.env.DB_CONNECTION_TIMEOUT) || 2000,
@@ -35,6 +45,10 @@ class ScanRepository {
    */
   async createScanSession(sessionData) {
     try {
+      const parsedOperatorId = Number(sessionData.operatorId);
+      const persistedOperatorId = Number.isInteger(parsedOperatorId) && parsedOperatorId > 0
+        ? parsedOperatorId
+        : null;
       const query = `
         INSERT INTO scan_sessions (
           uid, scan_operator_id, event_id, location, device_info, created_by
@@ -44,7 +58,7 @@ class ScanRepository {
       `;
 
       const values = [
-        sessionData.operatorId,
+        persistedOperatorId,
         sessionData.eventId || null,
         sessionData.location,
         JSON.stringify(sessionData.deviceInfo || {}),
@@ -58,6 +72,7 @@ class ScanRepository {
         sessionId: session.id,
         uid: session.uid,
         operatorId: sessionData.operatorId,
+        persistedOperatorId,
         eventId: sessionData.eventId || null
       });
 
@@ -457,8 +472,19 @@ class ScanRepository {
       let paramIndex = 1;
 
       if (filters.operatorId) {
-        query += ` AND scan_operator_id = $${paramIndex++}`;
-        values.push(filters.operatorId);
+        const parsedOperatorId = Number(filters.operatorId);
+        if (Number.isInteger(parsedOperatorId) && parsedOperatorId > 0) {
+          query += ` AND (scan_operator_id = $${paramIndex++} OR device_info->>'operatorId' = $${paramIndex++})`;
+          values.push(parsedOperatorId, String(filters.operatorId));
+        } else {
+          query += ` AND device_info->>'operatorId' = $${paramIndex++}`;
+          values.push(String(filters.operatorId));
+        }
+      }
+
+      if (filters.eventId) {
+        query += ` AND event_id = $${paramIndex++}`;
+        values.push(filters.eventId);
       }
 
       if (filters.location) {

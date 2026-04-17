@@ -171,23 +171,38 @@ class EventCoreClient {
  */
 async validateTicket(ticketData, scanContext) {
   try {
+    const resolvedTicketId =
+      ticketData.ticketId && ticketData.ticketId !== 'unknown' ? ticketData.ticketId : null;
+    const resolvedTicketCode =
+      ticketData.ticketCode ||
+      ticketData.metadata?.originalData?.ticket_code ||
+      ticketData.metadata?.originalData?.ticketCode ||
+      null;
+    const resolvedEventId =
+      ticketData.eventId && ticketData.eventId !== 'unknown'
+        ? ticketData.eventId
+        : scanContext.eventId || ticketData.metadata?.originalData?.eventId || null;
+
     logger.core('Validating ticket via EventCore (INTERNAL ROUTE)', {
-      ticketId: ticketData.ticketId,
-      eventId: ticketData.eventId,
+      ticketId: resolvedTicketId,
+      ticketCode: resolvedTicketCode,
+      eventId: resolvedEventId,
       scanLocation: scanContext.location
     });
 
     const payload = {
-      ticketId: ticketData.ticketId,
-      eventId: ticketData.eventId,
+      ticketId: resolvedTicketId,
+      ticketCode: resolvedTicketCode,
+      eventId: resolvedEventId,
       ticketType: ticketData.ticketType || 'standard',
-      userId: ticketData.userId || 1, // CORRIGÉ: Assurer userId par défaut
+      userId: ticketData.userId || 1,
       scanContext: {
         location: scanContext.location,
         deviceId: scanContext.deviceId,
         timestamp: scanContext.timestamp || new Date().toISOString(),
         operatorId: scanContext.operatorId,
-        checkpointId: scanContext.checkpointId
+        checkpointId: scanContext.checkpointId,
+        eventId: resolvedEventId
       },
       validationMetadata: {
         qrVersion: ticketData.version,
@@ -196,19 +211,18 @@ async validateTicket(ticketData, scanContext) {
       }
     };
 
-    // CORRIGÉ : Appel aux routes INTERNES d'Event-Planner-Core
     const result = await this.validateTicketBreaker.fire(payload);
 
     logger.core('Ticket validation successful via INTERNAL route', {
-      ticketId: ticketData.ticketId,
+      ticketId: resolvedTicketId,
+      ticketCode: resolvedTicketCode,
       result: result.data?.success,
       processingTime: result.responseTime
     });
 
-    // Normalisation du résultat pour compatibilité avec Scan-Validation Service
     return {
       success: true,
-      data: result.data?.data || result.data, // Gérer les deux formats de réponse possibles
+      data: result.data?.data || result.data,
       metadata: {
         responseTime: result.responseTime,
         requestId: result.requestId,
@@ -219,22 +233,29 @@ async validateTicket(ticketData, scanContext) {
   } catch (error) {
       logger.error('Ticket validation failed via EventCore', {
         ticketId: ticketData.ticketId,
+        ticketCode:
+          ticketData.ticketCode ||
+          ticketData.metadata?.originalData?.ticket_code ||
+          ticketData.metadata?.originalData?.ticketCode ||
+          null,
         error: error.message,
         circuitBreakerState: this.validateTicketBreaker.stats?.state
       });
 
-      // Gérer les erreurs selon le type
       if (error.response) {
-        // Erreur HTTP du service
+        const upstreamCode = error.response.data?.code;
+
         return {
           success: false,
-          error: 'Erreur de validation du ticket',
-          code: this.mapHttpErrorToValidationCode(error.response.status),
+          error:
+            error.response.data?.error ||
+            error.response.data?.message ||
+            'Erreur de validation du ticket',
+          code: upstreamCode || this.mapHttpErrorToValidationCode(error.response.status),
           details: error.response.data,
           httpStatus: error.response.status
         };
       } else if (error.code === 'EOPENBREAKER') {
-        // Circuit breaker ouvert
         return {
           success: false,
           error: 'Service de validation indisponible',
@@ -242,7 +263,6 @@ async validateTicket(ticketData, scanContext) {
           details: { reason: 'circuit_breaker_open' }
         };
       } else {
-        // Erreur réseau ou autre
         return {
           success: false,
           error: 'Erreur de communication avec le service core',
@@ -252,12 +272,6 @@ async validateTicket(ticketData, scanContext) {
       }
     }
   }
-
-  /**
-   * Valide un événement via event-planner-core
-   * @param {string} eventId - ID de l'événement
-   * @returns {Promise<Object>} Résultat de la validation
-   */
   async validateEvent(eventId) {
     try {
       logger.core('Validating event via EventCore', { eventId });
@@ -521,7 +535,7 @@ async validateTicket(ticketData, scanContext) {
       };
 
       // Tester la connectivité avec le service core
-      const response = await this.httpClient.get('/api/health', {
+      const response = await this.httpClient.get('/health', {
         timeout: 5000
       });
 

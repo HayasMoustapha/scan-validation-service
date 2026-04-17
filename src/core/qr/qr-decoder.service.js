@@ -10,9 +10,12 @@ const logger = require('../../utils/logger');
 class QRDecoderService {
   constructor() {
     // Clés partagées avec ticket-generator pour la validation
-    this.hmacSecret = process.env.QR_HMAC_SECRET
-      || process.env.TICKET_SIGNATURE_SECRET
-      || 'default-secret-change-in-production';
+    this.hmacSecrets = [
+      process.env.QR_HMAC_SECRET,
+      process.env.TICKET_SIGNATURE_SECRET,
+      'default-secret-change-in-production'
+    ].filter(Boolean).filter((value, index, array) => array.indexOf(value) === index);
+    this.hmacSecret = this.hmacSecrets[0];
     this.rsaPublicKey = this.loadRSAPublicKey();
     
     // Versions supportées des QR codes
@@ -26,6 +29,7 @@ class QRDecoderService {
     
     // Taille maximale du payload QR (en bytes)
     this.maxQRSize = parseInt(process.env.QR_MAX_SIZE) || 32768; // 32KB pour PNG Base64
+    this.maxPNGQRSize = parseInt(process.env.QR_MAX_IMAGE_SIZE) || Math.max(this.maxQRSize, 32768);
   }
 
   /**
@@ -63,9 +67,11 @@ class QRDecoderService {
    */
   async decodeAndValidateQR(qrCode) {
     try {
+      const detectedType = this.detectQRType(qrCode);
+
       logger.qr('Starting QR code decoding and validation', {
         qrCodeLength: qrCode?.length || 0,
-        qrCodeType: this.detectQRType(qrCode)
+        qrCodeType: detectedType
       });
 
       // Validation basique du format
@@ -77,7 +83,9 @@ class QRDecoderService {
         };
       }
 
-      if (qrCode.length > this.maxQRSize) {
+      const maxAllowedSize = detectedType === 'PNG-Base64' ? this.maxPNGQRSize : this.maxQRSize;
+
+      if (qrCode.length > maxAllowedSize) {
         return {
           success: false,
           error: 'QR code trop volumineux',
@@ -471,38 +479,48 @@ class QRDecoderService {
     // Créer la chaîne à signer
     const stringToSign = this.createSignatureString(data);
     
-    // Calculer la signature attendue
-    const expectedSignature = crypto
-      .createHmac('sha256', this.hmacSecret)
-      .update(stringToSign)
-      .digest('hex');
-
-    // Comparaison sécurisée des signatures
     let isValid = false;
-    try {
-      isValid = crypto.timingSafeEqual(
-        Buffer.from(data.signature, 'hex'),
-        Buffer.from(expectedSignature, 'hex')
-      );
-    } catch (error) {
-      isValid = false;
-    }
+    let matchedSignature = null;
 
-    // Compat PNG Base64: accepter la signature générée sur JSON complet
-    if (!isValid && formatType === 'PNG-Base64') {
-      const { signature, ...dataToSign } = data;
-      const jsonSignature = crypto
-        .createHmac('sha256', this.hmacSecret)
-        .update(JSON.stringify(dataToSign))
+    for (const secret of this.hmacSecrets) {
+      const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(stringToSign)
         .digest('hex');
 
       try {
         isValid = crypto.timingSafeEqual(
           Buffer.from(data.signature, 'hex'),
-          Buffer.from(jsonSignature, 'hex')
+          Buffer.from(expectedSignature, 'hex')
         );
       } catch (error) {
         isValid = false;
+      }
+
+      if (!isValid && formatType === 'PNG-Base64') {
+        const { signature, ...dataToSign } = data;
+        const jsonSignature = crypto
+          .createHmac('sha256', secret)
+          .update(JSON.stringify(dataToSign))
+          .digest('hex');
+
+        try {
+          isValid = crypto.timingSafeEqual(
+            Buffer.from(data.signature, 'hex'),
+            Buffer.from(jsonSignature, 'hex')
+          );
+          if (isValid) {
+            matchedSignature = jsonSignature;
+          }
+        } catch (error) {
+          isValid = false;
+        }
+      } else if (isValid) {
+        matchedSignature = expectedSignature;
+      }
+
+      if (isValid) {
+        break;
       }
     }
 
@@ -512,7 +530,7 @@ class QRDecoderService {
       method: 'HMAC-SHA256',
       details: isValid ? null : { 
         reason: 'signature_mismatch',
-        expected: expectedSignature.substring(0, 16) + '...',
+        expected: matchedSignature ? matchedSignature.substring(0, 16) + '...' : null,
         received: data.signature.substring(0, 16) + '...'
       }
     };
@@ -576,20 +594,28 @@ class QRDecoderService {
       };
     }
 
-    const { signature, ...dataToSign } = data;
-    const expectedSignature = crypto
-      .createHmac('sha256', this.hmacSecret)
-      .update(JSON.stringify(dataToSign))
-      .digest('hex');
-
     let isValid = false;
-    try {
-      isValid = crypto.timingSafeEqual(
-        Buffer.from(data.signature, 'hex'),
-        Buffer.from(expectedSignature, 'hex')
-      );
-    } catch (error) {
-      isValid = false;
+    let matchedSignature = null;
+    const { signature, ...dataToSign } = data;
+
+    for (const secret of this.hmacSecrets) {
+      const expectedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(JSON.stringify(dataToSign))
+        .digest('hex');
+
+      try {
+        isValid = crypto.timingSafeEqual(
+          Buffer.from(data.signature, 'hex'),
+          Buffer.from(expectedSignature, 'hex')
+        );
+        if (isValid) {
+          matchedSignature = expectedSignature;
+          break;
+        }
+      } catch (error) {
+        isValid = false;
+      }
     }
 
     return {
@@ -598,7 +624,7 @@ class QRDecoderService {
       method: 'HMAC-SHA256',
       details: isValid ? null : {
         reason: 'signature_mismatch',
-        expected: expectedSignature.substring(0, 16) + '...',
+        expected: matchedSignature ? matchedSignature.substring(0, 16) + '...' : null,
         received: data.signature.substring(0, 16) + '...'
       }
     };

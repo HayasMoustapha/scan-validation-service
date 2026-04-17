@@ -18,7 +18,15 @@ router.post('/validate',
     scanContext: Joi.object({
       location: Joi.string().optional(),
       deviceId: Joi.string().optional(),
+      eventId: Joi.alternatives().try(
+        Joi.number().integer().positive(),
+        Joi.string()
+      ).optional(),
       operatorId: Joi.alternatives().try(
+        Joi.number().integer().positive(),
+        Joi.string()
+      ).optional(),
+      sessionId: Joi.alternatives().try(
         Joi.number().integer().positive(),
         Joi.string()
       ).optional()
@@ -47,6 +55,49 @@ router.post('/validate-offline',
     }).optional()
   }),
   scansController.validateTicketOffline
+);
+
+router.post('/sessions/start',
+  ValidationMiddleware.validate({
+    eventId: Joi.alternatives().try(
+      Joi.number().integer().positive(),
+      Joi.string()
+    ).optional(),
+    operatorId: Joi.alternatives().try(
+      Joi.number().integer().positive(),
+      Joi.string()
+    ).required(),
+    deviceId: Joi.string().required(),
+    location: Joi.string().required(),
+    deviceInfo: Joi.object().optional()
+  }),
+  scansController.startScanSession
+);
+
+router.post('/sessions/end',
+  ValidationMiddleware.validate({
+    sessionId: Joi.alternatives().try(
+      Joi.number().integer().positive(),
+      Joi.string()
+    ).required()
+  }),
+  scansController.endScanSession
+);
+
+router.get('/sessions/active',
+  ValidationMiddleware.validateQuery({
+    eventId: Joi.alternatives().try(
+      Joi.number().integer().positive(),
+      Joi.string()
+    ).optional(),
+    operatorId: Joi.alternatives().try(
+      Joi.number().integer().positive(),
+      Joi.string()
+    ).optional(),
+    location: Joi.string().optional(),
+    limit: Joi.number().integer().min(1).max(100).optional()
+  }),
+  scansController.getActiveScanSessions
 );
 
 // GET /api/scans/history/ticket/:ticketId - Historique technique des scans

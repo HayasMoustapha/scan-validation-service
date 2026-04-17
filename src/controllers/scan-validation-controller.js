@@ -11,6 +11,27 @@
  */
 
 const crypto = require('crypto');
+const { Pool } = require('pg');
+const logger = require('../utils/logger');
+
+function buildPoolConfig() {
+  const connectionConfig = process.env.DATABASE_URL
+    ? { connectionString: process.env.DATABASE_URL }
+    : {
+        host: process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT, 10) || 5432,
+        database: process.env.DB_NAME || 'event_planner_scan',
+        user: process.env.DB_USER || 'postgres',
+        password: String(process.env.DB_PASSWORD || 'postgres')
+      };
+
+  return {
+    ...connectionConfig,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000
+  };
+}
 
 /**
  * Valide un ticket scanné
@@ -237,18 +258,10 @@ function verifyDataCoherence(ticketData, ticketCode, eventId) {
  * @returns {Promise<Object>} Résultat du contrôle
  */
 async function checkTicketReuse(ticketId, ticketCode) {
+  const pool = new Pool(buildPoolConfig());
+
   try {
     // Implémentation de la vérification en base de données
-    const { Pool } = require('pg');
-    const logger = require('../utils/logger');
-    
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      max: 20,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    });
-
     const query = `
       SELECT 
         sl.id,
@@ -350,6 +363,8 @@ async function checkTicketReuse(ticketId, ticketCode) {
       is_blocked: false,
       warning: 'Database check failed, allowing scan with caution'
     };
+  } finally {
+    await pool.end().catch(() => undefined);
   }
 }
 

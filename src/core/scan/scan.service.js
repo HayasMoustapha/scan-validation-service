@@ -48,7 +48,10 @@ class ScanService {
         operatorId: sessionData.operatorId,
         eventId: sessionData.eventId || null,
         location: sessionData.location,
-        deviceInfo: sessionData.deviceInfo,
+        deviceInfo: {
+          ...sessionData.deviceInfo,
+          operatorId: sessionData.operatorId || null
+        },
         createdBy: sessionData.createdBy
       });
 
@@ -67,8 +70,10 @@ class ScanService {
           uid: session.uid,
           startedAt: session.started_at,
           eventId: session.event_id || null,
+          operatorId: sessionData.operatorId || null,
           location: session.location,
-          deviceInfo: session.device_info
+          deviceInfo: session.device_info,
+          status: 'active'
         }
       };
     } catch (error) {
@@ -503,9 +508,11 @@ class ScanService {
           id: session.id,
           uid: session.uid,
           startedAt: session.startedAt,
-          operatorId: session.operatorId,
+          eventId: session.eventId || null,
+          operatorId: session.operatorId || session.deviceInfo?.operatorId || null,
           location: session.location,
-          deviceInfo: session.deviceInfo
+          deviceInfo: session.deviceInfo,
+          status: 'active'
         }))
       };
     } catch (error) {

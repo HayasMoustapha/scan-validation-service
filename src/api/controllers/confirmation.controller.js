@@ -8,8 +8,18 @@
 const { Pool } = require('pg');
 
 // Configuration de la base de données
+const connectionConfig = process.env.DATABASE_URL
+  ? { connectionString: process.env.DATABASE_URL }
+  : {
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT, 10) || 5432,
+      database: process.env.DB_NAME || 'event_planner_scan',
+      user: process.env.DB_USER || 'postgres',
+      password: String(process.env.DB_PASSWORD || 'postgres')
+    };
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  ...connectionConfig,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
@@ -38,8 +48,10 @@ async function receiveScanConfirmation(req, res) {
     // 1. Mettre à jour le cache des tickets scannés
     await updateScannedTicketsCache(ticketId, validationResult);
     
-    // 2. Enregistrer le log de scan
-    await recordScanLog(ticketId, validationResult, scanMetadata);
+    // 2. Éviter le doublon: le service de scan journalise déjà le scan primaire
+    if (scanMetadata?.validation_source !== 'EVENT_PLANNER_CORE') {
+      await recordScanLog(ticketId, validationResult, scanMetadata);
+    }
     
     // 3. Gérer les tentatives de fraude si nécessaire
     if (validationResult.fraud_flags) {

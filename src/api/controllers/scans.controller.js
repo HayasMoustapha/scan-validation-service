@@ -18,6 +18,118 @@ const logger = require('../../utils/logger');
  * NE GÉNÈRE PAS de QR codes - utilise le service QR decoder pour la validation
  */
 class ScansController {
+  async startScanSession(req, res) {
+    try {
+      const { eventId, operatorId, deviceId, location, deviceInfo = {} } = req.body;
+
+      if (!operatorId || !location || !deviceId) {
+        return res.status(400).json(
+          ticketValidationErrorResponse(
+            'operatorId, deviceId et location sont requis',
+            'MISSING_SESSION_CONTEXT'
+          )
+        );
+      }
+
+      const result = await scanService.startScanSession({
+        eventId: eventId || null,
+        operatorId,
+        location,
+        deviceInfo: {
+          deviceId,
+          ...deviceInfo
+        },
+        createdBy: req.user?.id || null
+      });
+
+      if (!result.success) {
+        return res.status(400).json(
+          errorResponse(result.error, null, result.code)
+        );
+      }
+
+      return res.status(201).json(
+        successResponse('Scan session started successfully', result.session)
+      );
+    } catch (error) {
+      logger.error('Failed to start scan session', {
+        error: error.message
+      });
+
+      return res.status(500).json(
+        errorResponse('Échec du démarrage de la session de scan', null, 'SESSION_START_FAILED')
+      );
+    }
+  }
+
+  async endScanSession(req, res) {
+    try {
+      const { sessionId } = req.body;
+
+      if (!sessionId) {
+        return res.status(400).json(
+          ticketValidationErrorResponse('sessionId requis', 'MISSING_SESSION_ID')
+        );
+      }
+
+      const result = await scanService.endScanSession(sessionId, {
+        updatedBy: req.user?.id || null
+      });
+
+      if (!result.success) {
+        return res.status(400).json(
+          errorResponse(result.error, null, result.code)
+        );
+      }
+
+      return res.status(200).json(
+        successResponse('Scan session ended successfully', result.session)
+      );
+    } catch (error) {
+      logger.error('Failed to end scan session', {
+        error: error.message,
+        sessionId: req.body?.sessionId
+      });
+
+      return res.status(500).json(
+        errorResponse('Échec de la fin de la session de scan', null, 'SESSION_END_FAILED')
+      );
+    }
+  }
+
+  async getActiveScanSessions(req, res) {
+    try {
+      const { eventId, operatorId, location, limit } = req.query;
+
+      const result = await scanService.getActiveScanSessions({
+        eventId: eventId || undefined,
+        operatorId: operatorId || undefined,
+        location: location || undefined,
+        limit: limit ? Number(limit) : undefined
+      });
+
+      if (!result.success) {
+        return res.status(400).json(
+          errorResponse(result.error, null, result.code)
+        );
+      }
+
+      return res.status(200).json(
+        successResponse('Active scan sessions retrieved successfully', {
+          sessions: result.sessions
+        })
+      );
+    } catch (error) {
+      logger.error('Failed to get active scan sessions', {
+        error: error.message,
+        query: req.query
+      });
+
+      return res.status(500).json(
+        errorResponse('Échec de la récupération des sessions actives', null, 'ACTIVE_SESSIONS_RETRIEVAL_FAILED')
+      );
+    }
+  }
   /**
    * Valide un ticket à partir d'un QR code scanné
    * Point d'entrée principal pour la validation des tickets
@@ -35,8 +147,11 @@ class ScansController {
       logger.scan('Starting ticket validation', {
         hasScanContext: !!scanContext,
         scanLocation: scanContext.location,
-        deviceId: scanContext.deviceId
+        deviceId: scanContext.deviceId,
+        sessionId: scanContext.sessionId || null
       });
+
+      const resolvedSessionId = scanContext.sessionId || null;
 
       // Utiliser le service de validation orchestré
       const validationResult = await validationService.validateTicket(
@@ -52,9 +167,9 @@ class ScansController {
         if (validationResult.validationId) {
           await scanService.recordScan({
             validationId: validationResult.validationId,
-            sessionId: null,
-            ticketId: 'UNKNOWN',
-            eventId: 'UNKNOWN',
+            sessionId: resolvedSessionId,
+            ticketId: null,
+            eventId: null,
             result: 'invalid',
             scanContext,
             timestamp: new Date().toISOString(),
@@ -76,7 +191,7 @@ class ScansController {
       // Enregistrer le scan réussi
       await scanService.recordScan({
         validationId: validationResult.validationId,
-        sessionId: null,
+        sessionId: resolvedSessionId,
         ticketId: validationResult.ticket.id,
         eventId: validationResult.ticket.eventId,
         result: 'valid',

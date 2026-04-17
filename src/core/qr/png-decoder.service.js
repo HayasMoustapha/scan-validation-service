@@ -9,7 +9,11 @@ const logger = require('../../utils/logger');
  */
 class PNGDecoderService {
   constructor() {
-    this.hmacSecret = process.env.QR_HMAC_SECRET || 'default-hmac-secret-change-in-production';
+    this.hmacSecret =
+      process.env.QR_HMAC_SECRET ||
+      process.env.TICKET_SIGNATURE_SECRET ||
+      'default-secret-change-in-production';
+    this.allowMockFallback = process.env.SCAN_ALLOW_PNG_MOCK_FALLBACK === 'true';
   }
 
   /**
@@ -23,27 +27,35 @@ class PNGDecoderService {
       const base64Data = pngBase64.replace(/^data:image\/png;base64,/, '');
       const imageBuffer = Buffer.from(base64Data, 'base64');
 
-      // Traiter l'image avec sharp pour optimiser le décodage
-      const { data, info } = await sharp(imageBuffer)
-        .resize(300, 300) // Redimensionner pour optimiser
-        .grayscale()      // Convertir en niveaux de gris
-        .normalize()      // Normaliser les couleurs
-        .raw()            // Obtenir les pixels bruts
-        .toBuffer({ resolveWithObject: true });
+      const attempts = [
+        sharp(imageBuffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+        sharp(imageBuffer)
+          .resize(300, 300, { fit: 'contain', background: '#ffffff' })
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true })
+      ];
 
-      // jsQR attend les données en format Uint8ClampedArray
-      const imageData = new Uint8ClampedArray(data);
-      
-      // Tenter de décoder le QR code
-      const qrCode = jsQR(imageData, info.width, info.height);
-      
-      if (!qrCode) {
+      let qrCode = null;
+      let decodedInfo = null;
+
+      for (const attempt of attempts) {
+        const { data, info } = await attempt;
+        const imageData = new Uint8ClampedArray(data);
+        qrCode = jsQR(imageData, info.width, info.height);
+        if (qrCode) {
+          decodedInfo = info;
+          break;
+        }
+      }
+
+      if (!qrCode || !decodedInfo) {
         throw new Error('QR code non trouvé dans l\'image PNG');
       }
 
       logger.qr('QR code decoded from PNG', {
         qrDataLength: qrCode.data.length,
-        imageSize: `${info.width}x${info.height}`
+        imageSize: `${decodedInfo.width}x${decodedInfo.height}`
       });
 
       // Parser les données JSON du QR code
@@ -83,7 +95,7 @@ class PNGDecoderService {
       const transformedData = {
         ticketId: ticketData.id?.toString() || 'unknown',
         eventId: ticketData.eventId?.toString() || 'unknown',
-        ticketType: ticketData.type || 'standard',
+        ticketType: this.normalizeTicketType(ticketData.type),
         userId: ticketData.userId || 1,
         issuedAt: ticketData.createdAt || ticketData.timestamp || new Date().toISOString(),
         expiresAt: this.calculateExpiryDate(ticketData.createdAt || ticketData.timestamp),
@@ -116,7 +128,7 @@ class PNGDecoderService {
       });
       
       // En cas d'erreur, retourner des données mock pour le développement
-      if (process.env.NODE_ENV === 'development') {
+      if (this.allowMockFallback) {
         logger.warn('Using mock data for development mode');
         return this.generateMockTicketData(pngBase64);
       }
@@ -189,6 +201,41 @@ class PNGDecoderService {
     };
     
     return ticketData;
+  }
+
+  normalizeTicketType(ticketType) {
+    const normalized = ticketType?.toString().trim().toLowerCase();
+
+    if (!normalized || normalized === 'ticket') {
+      return 'standard';
+    }
+
+    const supportedTypes = new Set(['standard', 'vip', 'premium', 'early-bird', 'student', 'staff']);
+    if (supportedTypes.has(normalized)) {
+      return normalized;
+    }
+
+    if (normalized.includes('vip')) {
+      return 'vip';
+    }
+
+    if (normalized.includes('premium')) {
+      return 'premium';
+    }
+
+    if (normalized.includes('student')) {
+      return 'student';
+    }
+
+    if (normalized.includes('staff')) {
+      return 'staff';
+    }
+
+    if (normalized.includes('early')) {
+      return 'early-bird';
+    }
+
+    return 'standard';
   }
 }
 
