@@ -18,7 +18,15 @@
  * - La gestion des utilisateurs/opérateurs (délégué à event-planner-core)
  */
 
-require('dotenv').config();
+const path = require('path');
+const dotenv = require('dotenv');
+
+if (process.env.NODE_ENV === 'test') {
+  dotenv.config({ path: path.resolve(__dirname, '..', '.env.test') });
+  dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
+} else {
+  dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
+}
 
 const express = require('express');
 const cors = require('cors');

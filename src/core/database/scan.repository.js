@@ -401,6 +401,7 @@ class ScanRepository {
     try {
       const startDate = filters.startDate || new Date(Date.now() - 24 * 60 * 60 * 1000); // 24h par défaut
       const endDate = filters.endDate || new Date();
+      const normalizedEventId = String(eventId).trim();
 
       const query = `
         SELECT 
@@ -412,16 +413,24 @@ class ScanRepository {
           array_agg(DISTINCT sl.location) as locations
         FROM scan_logs sl
         LEFT JOIN fraud_attempts fa ON sl.id = fa.scan_log_id
+        LEFT JOIN scan_sessions ss ON ss.id = sl.scan_session_id
         WHERE sl.scanned_at BETWEEN $1 AND $2
-        AND sl.ticket_data::text LIKE $3
+        AND (
+          ss.event_id::text = $3
+          OR sl.validation_details->>'eventId' = $3
+          OR sl.validation_details->'businessValidation'->'event'->>'id' = $3
+          OR sl.validation_details->'businessValidation'->'ticket'->>'eventId' = $3
+          OR sl.ticket_data->>'eventId' = $3
+          OR sl.ticket_data->>'event_id' = $3
+        )
       `;
 
-      const result = await this.pool.query(query, [startDate, endDate, `%${eventId}%`]);
+      const result = await this.pool.query(query, [startDate, endDate, normalizedEventId]);
 
       const stats = result.rows[0];
 
       logger.database('Event scan stats retrieved', {
-        eventId,
+        eventId: normalizedEventId,
         totalScans: stats.total_scans,
         uniqueTickets: stats.unique_tickets
       });
@@ -434,7 +443,7 @@ class ScanRepository {
       const locations = Array.isArray(stats.locations) ? stats.locations.filter(loc => loc !== null) : [];
 
       return {
-        eventId,
+        eventId: normalizedEventId,
         period: { startDate, endDate },
         totalScans,
         uniqueTickets,
@@ -449,7 +458,7 @@ class ScanRepository {
     } catch (error) {
       logger.error('Failed to get event scan stats', {
         error: error.message,
-        eventId
+        eventId: String(eventId).trim()
       });
       throw new Error('Échec de la récupération des statistiques de scan');
     }
