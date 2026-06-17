@@ -9,12 +9,20 @@ const logger = require('../../utils/logger');
  */
 class QRDecoderService {
   constructor() {
-    // Clés partagées avec ticket-generator pour la validation
+    const isProduction = process.env.NODE_ENV === 'production';
+    // Clés partagées avec ticket-generator pour la validation.
+    // E5.3 — En production, le secret par défaut PUBLIC est REFUSÉ : sinon des QR
+    // forgés avec ce secret connu de tous passeraient la validation. Fail-closed
+    // si aucun secret sûr n'est configuré.
     this.hmacSecrets = [
       process.env.QR_HMAC_SECRET,
       process.env.TICKET_SIGNATURE_SECRET,
-      'default-secret-change-in-production'
+      isProduction ? null : 'default-secret-change-in-production'
     ].filter(Boolean).filter((value, index, array) => array.indexOf(value) === index);
+
+    if (isProduction && this.hmacSecrets.length === 0) {
+      throw new Error('QR HMAC secret manquant en production : configurez QR_HMAC_SECRET ou TICKET_SIGNATURE_SECRET (le secret par défaut public est refusé).');
+    }
     this.hmacSecret = this.hmacSecrets[0];
     this.rsaPublicKey = this.loadRSAPublicKey();
     

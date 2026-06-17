@@ -2,8 +2,13 @@ const express = require('express');
 const Joi = require('joi');
 const scansController = require('../controllers/scans.controller');
 const ValidationMiddleware = require('../../middleware/validation.middleware');
+const { serviceTokenGuard } = require('../../middleware/service-token.middleware');
 
 const router = express.Router();
+
+// E5.3 — Garde service-token optionnel (désactivé par défaut ; activé en prod via
+// SCAN_REQUIRE_SERVICE_TOKEN=true). Posture d'auth inter-services sans casser le BFF.
+router.use(serviceTokenGuard);
 
 /**
  * 📸 ROUTES TECHNIQUES POUR LA VALIDATION DE TICKETS
