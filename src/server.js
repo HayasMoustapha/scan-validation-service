@@ -39,7 +39,6 @@ const rawBody = require('raw-body');
 
 // Import des services et routes internes
 const logger = require('./utils/logger');
-const scanValidationRoutes = require('./routes/scan-validation-routes');
 const healthRoutes = require('./health/health.routes');
 const scansRoutes = require('./api/routes/scans.routes');
 const confirmationRoutes = require('./api/routes/confirmation.routes');
@@ -209,12 +208,11 @@ class ScanValidationServer {
     // Endpoints publics pour le monitoring du service
     this.app.use('/health', healthRoutes);
 
-    // 📸 ROUTES API DE VALIDATION - Anciennes routes (compatibilité)
-    // Routes sans authentification - service technique pur
-    this.app.use('/api', scanValidationRoutes);
-
-    // 🎫 ROUTES API ACTUELLES - Routes principales
-    // Routes principales de validation de tickets
+    // E5.6 — Stack de validation UNIQUE et canonique : /api/scans.
+    // L'ancien stack /api (scan-validation-routes, contrat /api/validate divergent)
+    // a été retiré pour éliminer la double validation. Le BFF frontend et les
+    // clients utilisent /api/scans/*.
+    // 🎫 ROUTES API ACTUELLES - Routes principales de validation de tickets
     this.app.use('/api/scans', scansRoutes);
 
     // � ROUTES INTERNES - Communication inter-services
