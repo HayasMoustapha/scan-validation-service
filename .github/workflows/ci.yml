@@ -1,0 +1,34 @@
+name: CI
+
+# E-CI — Gate CI de scan-validation-service sur le patron prouvé (core/payment/
+# auth/notification/ticket) : la suite UNITAIRE (sans dépendance externe) tourne
+# en vert et devient un gate sur chaque PR/poussée vers main.
+#
+# validation.test.js exerce le service de validation de bout en bout (il appelle
+# la validation métier core via HTTP) : c'est un test d'INTÉGRATION, exclu du gate
+# unit et rattaché à tests/integration. Il sera ajouté plus tard en job dédié avec
+# core + base, pour garder ce gate FIABLE et VERT.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    name: Tests unitaires (sans base)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install (npm ci)
+        run: npm ci
+      - name: Tests unitaires
+        run: npm run test:unit
+        env:
+          NODE_ENV: test
+          CI: "true"
