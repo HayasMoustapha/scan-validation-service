@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const qrDecoderService = require('../qr/qr-decoder.service');
 const eventCoreClient = require('../clients/event-core.client');
 const scanService = require('../scan/scan.service');
+const fraudDetectionService = require('../fraud/fraud-detection.service');
 const logger = require('../../utils/logger');
 
 /**
@@ -213,6 +214,31 @@ class ValidationService {
         };
 
         this.stats.successfulScans++;
+
+        // Étape 5 bis: Analyse anti-fraude branchée sur le flux LIVE de validation.
+        // Persistance activée (les fraudes détectées survivent au redémarrage via
+        // la table fraud_attempts). STRICTEMENT non bloquant : un échec d'analyse
+        // ou de persistance ne doit JAMAIS faire échouer un scan légitime.
+        try {
+          const fraudAnalysis = await fraudDetectionService.analyzeScan(
+            {
+              ticketId: resolvedTicketId,
+              eventId: resolvedEventId,
+              scanLogId: scanRecord.validationId,
+              timestamp: scanRecord.timestamp
+            },
+            scanContext,
+            { persist: true }
+          );
+          if (fraudAnalysis && fraudAnalysis.isSuspicious) {
+            this.stats.fraudAttempts++;
+          }
+        } catch (fraudError) {
+          logger.error('Fraud analysis failed (non-blocking)', {
+            validationId,
+            error: fraudError.message
+          });
+        }
 
         logger.validation('Ticket validation completed successfully', {
           validationId,
