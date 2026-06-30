@@ -12,6 +12,7 @@
     "test": "NODE_ENV=test jest",
     "test:unit": "jest --testPathIgnorePatterns tests/integration tests/validation.test.js",
     "test:integration": "jest tests/integration tests/validation.test.js",
+    "test:integration:selfcontained": "jest --config jest.selfcontained.config.json --ci --forceExit",
     "test:watch": "NODE_ENV=test jest --watch",
     "test:coverage": "NODE_ENV=test jest --coverage",
     "test:ci": "NODE_ENV=test jest --ci --coverage --watchAll=false"

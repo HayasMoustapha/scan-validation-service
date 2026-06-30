@@ -6,6 +6,7 @@
  */
 
 const { Pool } = require('pg');
+const { resolveError } = require('../../utils/controller-error');
 
 // Configuration de la base de données
 const connectionConfig = process.env.DATABASE_URL
@@ -80,11 +81,18 @@ async function receiveScanConfirmation(req, res) {
   } catch (error) {
     const processingTime = Date.now() - startTime;
     console.error('[SCAN_CONFIRMATION] Erreur traitement confirmation:', error.message);
-    
-    res.status(500).json({
+
+    // Honore une erreur client explicitement typée (statut < 500 + code stable),
+    // sinon retombe sur un 500 coché INTERNAL_ERROR (faute interne réelle).
+    const { status, code, isExplicit, message } = resolveError(error, {
+      fallbackCode: 'INTERNAL_ERROR',
+      fallbackStatus: 500
+    });
+
+    res.status(status).json({
       success: false,
-      error: 'Erreur lors du traitement de la confirmation',
-      code: 'INTERNAL_ERROR',
+      error: isExplicit && message ? message : 'Erreur lors du traitement de la confirmation',
+      code,
       details: process.env.NODE_ENV === 'development' ? error.message : undefined,
       processing_time_ms: processingTime
     });

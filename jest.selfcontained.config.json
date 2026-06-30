@@ -1,0 +1,10 @@
+{
+  "testEnvironment": "node",
+  "setupFiles": ["<rootDir>/tests/setup/jest.env.setup.js"],
+  "testTimeout": 30000,
+  "verbose": true,
+  "testMatch": [
+    "<rootDir>/tests/integration/scans.test.js",
+    "<rootDir>/tests/integration/scans-operator-canonical.test.js"
+  ]
+}

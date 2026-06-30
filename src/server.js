@@ -408,7 +408,19 @@ class ScanValidationServer {
       // 📴 INITIALISATION SERVICE OFFLINE - Préparation du mode offline
       // Configure le service pour fonctionner sans connexion réseau
       await offlineService.initialize();
-      
+
+      // 🔌 INJECTION DU CLIENT DE SYNCHRONISATION OFFLINE
+      // Branche un client réel (event-planner-core via EventCoreClient) pour que
+      // les scans mis en file en mode offline se synchronisent dès le retour de
+      // connectivité. En environnement de test, on NE branche PAS de client :
+      // la file conserve le fallback explicite "non configuré" (SYNC_CLIENT_NOT_CONFIGURED)
+      // attendu par les tests unitaires (pas de réseau réel).
+      if (process.env.NODE_ENV !== 'test') {
+        const { createOfflineSyncClient } = require('./core/offline/offline-sync-client');
+        offlineService.setSyncClient(createOfflineSyncClient());
+        logger.info('Offline sync client wired to event-planner-core');
+      }
+
       // 🚀 DÉMARRAGE DU SERVEUR
       logger.info('🚀 Starting Scan Validation Service server...');
       
