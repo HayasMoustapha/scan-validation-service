@@ -224,7 +224,11 @@ class ValidationService {
             {
               ticketId: resolvedTicketId,
               eventId: resolvedEventId,
-              scanLogId: scanRecord.validationId,
+              // scan_log_id is a BIGINT FK to scan_logs(id). validationId is a UUID and the scan log
+              // is recorded out-of-band (non-blocking), so there is no bigint id to link here yet.
+              // The column is nullable -> pass null instead of the UUID (which caused
+              // "invalid input syntax for type bigint" and dropped every fraud-attempt persist).
+              scanLogId: null,
               timestamp: scanRecord.timestamp
             },
             scanContext,
