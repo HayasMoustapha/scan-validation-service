@@ -2,7 +2,17 @@ const assert = require('assert');
 const validationService = require('../src/core/validation/validation.service');
 const qrDecoderService = require('../src/core/qr/qr-decoder.service');
 const scanService = require('../src/core/scan/scan.service');
+const eventCoreClient = require('../src/core/clients/event-core.client');
 const logger = require('../src/utils/logger');
+
+// Pristine method references captured before any test mutates them. An afterEach restores these so a
+// test that throws before its inline restore cannot leak a monkey-patched method into later tests
+// (this was the root cause of Cas 6/7/8 flakiness: a leaked checkConcurrentScans short-circuited them).
+const PRISTINE = {
+  decodeAndValidateQR: qrDecoderService.decodeAndValidateQR,
+  validateTicket: eventCoreClient.validateTicket,
+  checkConcurrentScans: validationService.checkConcurrentScans,
+};
 
 /**
  * Tests complets pour le service de validation
@@ -32,6 +42,14 @@ describe('🧪 Scan Validation Service - Tests Complets', () => {
     // Réinitialiser les statistiques avant chaque test
     validationService.resetStats();
     scanService.resetStats();
+  });
+
+  afterEach(() => {
+    // Restaurer les méthodes potentiellement monkey-patchées pour garder chaque test hermétique,
+    // même si un test a échoué avant sa restauration inline.
+    qrDecoderService.decodeAndValidateQR = PRISTINE.decodeAndValidateQR;
+    eventCoreClient.validateTicket = PRISTINE.validateTicket;
+    validationService.checkConcurrentScans = PRISTINE.checkConcurrentScans;
   });
 
   describe('✅ Cas 1: Scan valide', () => {
@@ -73,7 +91,7 @@ describe('🧪 Scan Validation Service - Tests Complets', () => {
 
       assert.strictEqual(result.success, true, 'Le scan devrait réussir');
       assert.strictEqual(result.ticket.status, 'VALID', 'Le ticket devrait être valide');
-      assert.strictEqual(result.ticket.ticketId, 'TICKET_1234567890', 'L\'ID du ticket devrait correspondre');
+      assert.strictEqual(result.ticket.id, 'TICKET_1234567890', 'L\'ID du ticket devrait correspondre');
       assert.ok(result.validationId, 'Un ID de validation devrait être généré');
       assert.ok(result.validationTime, 'Le temps de validation devrait être enregistré');
 
@@ -192,7 +210,23 @@ describe('🧪 Scan Validation Service - Tests Complets', () => {
       // Simuler deux scans simultanés du même QR
       const qrCode = 'CONCURRENT_TEST_QR';
       
-      // Premier scan - devrait réussir
+      // Premier scan - devrait réussir. Mocks self-contained (ne pas dépendre d'un mock hérité).
+      qrDecoderService.decodeAndValidateQR = async () => ({
+        success: true,
+        data: {
+          ticketId: 'TICKET_CONCURRENT',
+          eventId: 'EVENT_CONCURRENT',
+          ticketType: 'standard',
+          userId: 'USER_1234567890',
+          issuedAt: '2026-01-28T10:00:00.000Z',
+          expiresAt: '2026-12-31T23:59:59.999Z'
+        }
+      });
+      eventCoreClient.validateTicket = async () => ({
+        success: true,
+        data: { status: 'VALID', ticket: { id: 'TICKET_CONCURRENT' }, event: { id: 'EVENT_CONCURRENT', status: 'active' } }
+      });
+
       const originalCheckConcurrentScans = validationService.checkConcurrentScans;
       let callCount = 0;
       validationService.checkConcurrentScans = () => {

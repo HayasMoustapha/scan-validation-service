@@ -204,7 +204,22 @@ class QRService {
         };
       }
 
-      logger.qr('QR code decoded successfully', {
+      // SÉCURITÉ : vérifier la signature HMAC avant d'accepter les données.
+      // Sans cette vérification, un QR forgé ou altéré serait accepté.
+      const signatureCheck = await this.verifySignature(qrData);
+      if (!signatureCheck.valid) {
+        logger.warn('QR signature verification failed', {
+          ticketId: qrData.id,
+          reason: signatureCheck.reason
+        });
+        return {
+          success: false,
+          error: signatureCheck.error,
+          code: signatureCheck.code
+        };
+      }
+
+      logger.qr('QR code decoded and signature verified', {
         ticketId: qrData.id,
         eventId: qrData.eventId,
         type: qrData.type
@@ -233,23 +248,42 @@ class QRService {
    * @returns {Promise<string>} Données décodées
    */
   async decodeQRImage(imageBuffer) {
+    // Décodage réel via sharp (rasterisation) + jsQR (lecture du QR).
+    // Les deux dépendances sont déjà présentes (package.json). Aucune dépendance
+    // réseau / credential n'est ajoutée. Si le décodage échoue, on ÉCHOUE
+    // EXPLICITEMENT plutôt que de retourner des données factices.
+    let sharp;
+    let jsQR;
     try {
-      // Utiliser qrcode-reader pour décoder l'image
-      // Pour l'instant, retourner une chaîne vide comme placeholder
-      // Dans une implémentation complète, on utiliserait jimp ou jsqr
-      
-      // Placeholder - nécessiterait une bibliothèque de décodage d'images
-      logger.warn('QR image decoding not implemented - using placeholder');
-      
-      return JSON.stringify({
-        id: 'placeholder',
-        eventId: 'placeholder',
-        type: 'standard',
-        nonce: 'placeholder',
-        signature: 'placeholder',
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 3600000).toISOString()
+      sharp = require('sharp');
+      jsQR = require('jsqr');
+    } catch (depError) {
+      const err = new Error('QR image decoding not supported, send decoded payload');
+      err.code = 'QR_IMAGE_DECODE_UNSUPPORTED';
+      logger.error('QR image decode libs unavailable', { error: depError.message });
+      throw err;
+    }
+
+    try {
+      const { data, info } = await sharp(imageBuffer)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      const qrCode = jsQR(new Uint8ClampedArray(data), info.width, info.height);
+
+      if (!qrCode || !qrCode.data) {
+        const err = new Error('Aucun QR code détecté dans l\'image');
+        err.code = 'QR_IMAGE_NO_CODE_FOUND';
+        throw err;
+      }
+
+      logger.qr('QR image decoded', {
+        qrDataLength: qrCode.data.length,
+        imageSize: `${info.width}x${info.height}`
       });
+
+      return qrCode.data;
     } catch (error) {
       logger.error('Failed to decode QR image', {
         error: error.message
@@ -276,6 +310,67 @@ class QRService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Vérifie la signature HMAC d'un QR code décodé (comparaison constante).
+   * Rejette tout QR forgé, altéré ou non signé.
+   * @param {Object} data - Données décodées du QR code (avec champ signature)
+   * @returns {Promise<Object>} { valid, error?, code?, reason? }
+   */
+  async verifySignature(data) {
+    if (!data || typeof data !== 'object') {
+      return {
+        valid: false,
+        error: 'Données de QR code invalides',
+        code: 'INVALID_QR_DATA',
+        reason: 'not_an_object'
+      };
+    }
+
+    if (!data.signature || typeof data.signature !== 'string') {
+      return {
+        valid: false,
+        error: 'Signature du QR code manquante',
+        code: 'QR_SIGNATURE_MISSING',
+        reason: 'missing_signature'
+      };
+    }
+
+    let expectedSignature;
+    try {
+      expectedSignature = await this.generateSignature(data);
+    } catch (error) {
+      return {
+        valid: false,
+        error: 'Échec de la vérification de la signature',
+        code: 'QR_SIGNATURE_VERIFICATION_FAILED',
+        reason: 'compute_error'
+      };
+    }
+
+    // Comparaison à temps constant pour éviter les attaques temporelles.
+    let isValid = false;
+    try {
+      const received = Buffer.from(data.signature, 'hex');
+      const expected = Buffer.from(expectedSignature, 'hex');
+      isValid =
+        received.length === expected.length &&
+        crypto.timingSafeEqual(received, expected);
+    } catch (error) {
+      isValid = false;
+    }
+
+    if (!isValid) {
+      return {
+        valid: false,
+        error: 'Signature du QR code invalide (QR forgé ou altéré)',
+        code: 'QR_SIGNATURE_INVALID',
+        reason: 'signature_mismatch'
+      };
+    }
+
+    return { valid: true };
   }
 
   /**

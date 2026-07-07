@@ -9,7 +9,14 @@ const logger = require('../../utils/logger');
 class EventCoreClient {
   constructor() {
     // Configuration de base
-    this.baseURL = process.env.EVENT_CORE_SERVICE_URL || 'http://localhost:3001';
+    // E5.2 — Accepter les deux noms d'env pour éviter le mismatch qui rendait
+    // la validation métier (vrai garde anti-double-entrée) injoignable :
+    // certains .env définissent CORE_SERVICE_URL, le client lisait seulement
+    // EVENT_CORE_SERVICE_URL. On lit les deux, EVENT_CORE_SERVICE_URL prioritaire.
+    this.baseURL =
+      process.env.EVENT_CORE_SERVICE_URL ||
+      process.env.CORE_SERVICE_URL ||
+      'http://localhost:3001';
     this.timeout = parseInt(process.env.EVENT_CORE_TIMEOUT) || 10000; // 10s
     this.retries = parseInt(process.env.EVENT_CORE_RETRIES) || 2;
     

@@ -10,7 +10,34 @@ class FraudDetectionService {
     this.suspiciousPatterns = new Map();
     this.blockedIPs = new Set();
     this.scanHistory = new Map();
+    // Repository de persistance durable (injectable pour les tests).
+    // Tant qu'il n'est pas fourni, il est résolu paresseusement vers le
+    // repository de scan partagé (table fraud_attempts) au premier besoin.
+    // L'analyse en mémoire reste la source rapide ; la persistance garantit
+    // que l'historique de fraude SURVIT au redémarrage du service.
+    this.repository = null;
     this.initializePatterns();
+  }
+
+  /**
+   * Injecte le repository de persistance (utilisé par les tests et le wiring).
+   * @param {Object} repository - Repository exposant createFraudAttempt()
+   */
+  setRepository(repository) {
+    this.repository = repository;
+  }
+
+  /**
+   * Résout le repository de persistance (injection > singleton partagé).
+   * Le require est paresseux pour ne pas créer de pool DB tant que la
+   * persistance n'est pas réellement sollicitée.
+   * @returns {Object} Repository de persistance
+   */
+  getRepository() {
+    if (!this.repository) {
+      this.repository = require('../database/scan.repository');
+    }
+    return this.repository;
   }
 
   /**
@@ -64,7 +91,7 @@ class FraudDetectionService {
    * @param {Object} context - Contexte du scan
    * @returns {Promise<Object>} Résultat de l'analyse
    */
-  async analyzeScan(scanData, context = {}) {
+  async analyzeScan(scanData, context = {}, options = {}) {
     const analysis = {
       isSuspicious: false,
       fraudFlags: [],
@@ -117,8 +144,16 @@ class FraudDetectionService {
       // Générer des recommandations
       analysis.recommendations = this.generateRecommendations(analysis);
 
-      // Mettre à jour l'historique
+      // Mettre à jour l'historique (cache mémoire rapide)
       this.updateScanHistory(scanData, context, analysis);
+
+      // Persistance durable optionnelle : si demandée, écrire les fraudes
+      // détectées dans le stockage durable pour qu'elles survivent au
+      // redémarrage. N'altère jamais le résultat de l'analyse en cas d'échec.
+      if (options.persist && analysis.fraudFlags.length > 0) {
+        const persistResult = await this.persistFraudAttempts(scanData, context, analysis);
+        analysis.persisted = persistResult.persisted;
+      }
 
       logger.info('Fraud analysis completed', {
         ticketId: scanData.ticketId,
@@ -473,6 +508,78 @@ class FraudDetectionService {
     if (history.length > 50) {
       history.shift();
     }
+  }
+
+  /**
+   * Persiste durablement les fraudes détectées via le repository.
+   * Chaque drapeau de fraude est écrit dans la table fraud_attempts afin que
+   * l'historique de fraude ne soit plus uniquement en mémoire (survit aux
+   * redémarrages). Dégradation gracieuse : une panne de persistance est
+   * journalisée mais ne propage jamais d'exception (le scan reste analysable).
+   * @param {Object} scanData - Données du scan analysé
+   * @param {Object} context - Contexte du scan (ip, userAgent, userId...)
+   * @param {Object} analysis - Résultat d'analyse (avec fraudFlags)
+   * @returns {Promise<Object>} { persisted, failed, records, errors }
+   */
+  async persistFraudAttempts(scanData = {}, context = {}, analysis = {}) {
+    const result = { persisted: 0, failed: 0, records: [], errors: [] };
+
+    const flags = Array.isArray(analysis.fraudFlags) ? analysis.fraudFlags : [];
+    if (flags.length === 0) {
+      return result;
+    }
+
+    let repository;
+    try {
+      repository = this.getRepository();
+    } catch (error) {
+      logger.error('Fraud persistence repository unavailable', {
+        error: error.message
+      });
+      result.failed = flags.length;
+      result.errors.push(error.message);
+      return result;
+    }
+
+    for (const flag of flags) {
+      try {
+        const record = await repository.createFraudAttempt({
+          scanLogId: scanData.scanLogId || null,
+          fraudType: flag.type,
+          severity: flag.severity || 'medium',
+          details: {
+            ...(flag.details || {}),
+            ticketId: scanData.ticketId,
+            eventId: scanData.eventId,
+            riskScore: analysis.riskScore,
+            action: flag.action
+          },
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent,
+          blocked: flag.action === 'block_ip' || flag.action === 'block_temporary',
+          createdBy: context.userId
+        });
+
+        result.persisted++;
+        result.records.push(record);
+      } catch (error) {
+        logger.error('Failed to persist fraud attempt', {
+          error: error.message,
+          fraudType: flag.type,
+          ticketId: scanData.ticketId
+        });
+        result.failed++;
+        result.errors.push(error.message);
+      }
+    }
+
+    logger.info('Fraud attempts persisted', {
+      ticketId: scanData.ticketId,
+      persisted: result.persisted,
+      failed: result.failed
+    });
+
+    return result;
   }
 
   /**

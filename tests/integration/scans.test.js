@@ -116,8 +116,10 @@ describe('Scans API Integration Tests', () => {
         .get('/health/components/invalid')
         .expect(404);
 
+      // A (stale fix): unknown routes now hit the canonical global 404 handler
+      // ({success:false, error:{code:'NOT_FOUND', path}}); legacy `available` flag removed.
       expect(response.body).toHaveProperty('success', false);
-      expect(response.body).toHaveProperty('available');
+      expect(response.body.error).toHaveProperty('code', 'NOT_FOUND');
     });
   });
 
@@ -149,7 +151,9 @@ describe('Scans API Integration Tests', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toHaveProperty('code', 'VALIDATION_ERROR');
+      // A (stale fix): validation middleware contract is {error:'Données invalides', code:'VALIDATION_ERROR'}
+      // (error is a string, code is top-level) — not error.code.
+      expect(response.body).toHaveProperty('code', 'VALIDATION_ERROR');
     });
 
     it('should reject invalid QR code format', async () => {
@@ -197,7 +201,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('POST /api/scans/qr/generate', () => {
+  // quarantine: needs E5.6-retired /api/scans/qr/* stack (canonical /api/scans no longer exposes qr endpoints; covered by scans-operator-canonical.test.js)
+  describe.skip('POST /api/scans/qr/generate', () => {
     it('should generate QR code successfully', async () => {
       const response = await request(app)
         .post('/api/scans/qr/generate')
@@ -243,7 +248,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('POST /api/scans/qr/batch', () => {
+  // quarantine: needs E5.6-retired /api/scans/qr/* stack
+  describe.skip('POST /api/scans/qr/batch', () => {
     it('should generate batch QR codes successfully', async () => {
       const tickets = [
         testTicketData,
@@ -298,7 +304,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('POST /api/scans/qr/test', () => {
+  // quarantine: needs E5.6-retired /api/scans/qr/* stack
+  describe.skip('POST /api/scans/qr/test', () => {
     it('should generate test QR code successfully', async () => {
       const response = await request(app)
         .post('/api/scans/qr/test')
@@ -325,7 +332,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('POST /api/scans/qr/decode', () => {
+  // quarantine: needs E5.6-retired /api/scans/qr/* stack
+  describe.skip('POST /api/scans/qr/decode', () => {
     it('should decode and validate QR code successfully', async () => {
       const response = await request(app)
         .post('/api/scans/qr/decode')
@@ -347,7 +355,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('GET /api/scans/:ticketId/history', () => {
+  // quarantine: old path retired in E5.6; canonical path is /api/scans/history/ticket/:ticketId (covered by scans-operator-canonical.test.js)
+  describe.skip('GET /api/scans/:ticketId/history', () => {
     it('should retrieve ticket scan history', async () => {
       const response = await request(app)
         .get(`/api/scans/${testTicketId}/history`);
@@ -366,7 +375,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('GET /api/scans/events/:eventId/stats', () => {
+  // quarantine: old path retired in E5.6; canonical path is /api/scans/stats/event/:eventId (covered by scans-operator-canonical.test.js)
+  describe.skip('GET /api/scans/events/:eventId/stats', () => {
     it('should retrieve event scan statistics', async () => {
       const response = await request(app)
         .get(`/api/scans/events/${testEventId}/stats`);
@@ -390,7 +400,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('POST /api/scans/reports', () => {
+  // quarantine: needs E5.6-retired /api/scans/reports endpoint (business reporting moved out of the technical scan stack)
+  describe.skip('POST /api/scans/reports', () => {
     it('should generate validation report successfully', async () => {
       const response = await request(app)
         .post('/api/scans/reports')
@@ -418,7 +429,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('POST /api/scans/offline/sync', () => {
+  // quarantine: needs E5.6-retired /api/scans/offline/* stack
+  describe.skip('POST /api/scans/offline/sync', () => {
     it('should sync offline data successfully', async () => {
       const response = await request(app)
         .post('/api/scans/offline/sync');
@@ -429,7 +441,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('GET /api/scans/offline/data', () => {
+  // quarantine: needs E5.6-retired /api/scans/offline/* stack
+  describe.skip('GET /api/scans/offline/data', () => {
     it('should retrieve all offline data', async () => {
       const response = await request(app)
         .get('/api/scans/offline/data');
@@ -452,7 +465,8 @@ describe('Scans API Integration Tests', () => {
     });
   });
 
-  describe('POST /api/scans/offline/cleanup', () => {
+  // quarantine: needs E5.6-retired /api/scans/offline/* stack
+  describe.skip('POST /api/scans/offline/cleanup', () => {
     it('should cleanup expired data successfully', async () => {
       const response = await request(app)
         .post('/api/scans/offline/cleanup');
@@ -470,8 +484,9 @@ describe('Scans API Integration Tests', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
+      // A (stale fix): canonical service health components are validation/scan/offline (the 'qr' component was folded into 'scan').
       expect(response.body.data).toHaveProperty('validation');
-      expect(response.body.data).toHaveProperty('qr');
+      expect(response.body.data).toHaveProperty('scan');
       expect(response.body.data).toHaveProperty('offline');
     });
 
@@ -481,13 +496,15 @@ describe('Scans API Integration Tests', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
+      // A (stale fix): canonical service stats components are validation/scan/offline (the 'qr' component was folded into 'scan').
       expect(response.body.data).toHaveProperty('validation');
-      expect(response.body.data).toHaveProperty('qr');
+      expect(response.body.data).toHaveProperty('scan');
       expect(response.body.data).toHaveProperty('offline');
     });
   });
 
-  describe('Webhooks', () => {
+  // quarantine: needs E5.6-retired /api/scans/webhooks/* stack (external webhook validation removed from the technical scan service)
+  describe.skip('Webhooks', () => {
     it('should handle external validation webhook', async () => {
       const response = await request(app)
         .post('/api/scans/webhooks/validate')
@@ -602,8 +619,11 @@ describe('Scans API Integration Tests', () => {
 
     it('should include CORS headers', async () => {
       const response = await request(app)
-        .options('/api/scans/validate');
+        .options('/api/scans/validate')
+        .set('Origin', 'http://localhost:3099');
 
+      // A (stale fix): the cors package only echoes access-control-allow-origin for an
+      // origin in the configured allowlist; localhost:3099 is always allowlisted, so use it.
       expect(response.headers).toHaveProperty('access-control-allow-origin');
       expect(response.headers).toHaveProperty('access-control-allow-methods');
     });

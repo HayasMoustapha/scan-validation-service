@@ -15,6 +15,18 @@ class OfflineService {
     this.pendingSync = new Map(); // Données en attente de synchronisation
     this.lastSyncTime = null;
     this.syncInProgress = false;
+    // Client de synchronisation injectable (ex: event-core client).
+    // Tant qu'aucun client n'est branché, la sync N'EST PAS feinte : elle
+    // renvoie un statut "non synchronisé" explicite (pas de faux succès).
+    this.syncClient = null;
+  }
+
+  /**
+   * Branche le client utilisé pour pousser les éléments offline vers le serveur.
+   * @param {Object} client - Client exposant storeScan/validateScan/updateScan
+   */
+  setSyncClient(client) {
+    this.syncClient = client;
   }
 
   /**
@@ -352,16 +364,7 @@ class OfflineService {
    * @returns {Promise<Object>} Résultat
    */
   async syncStoreAction(data) {
-    // Placeholder pour synchronisation avec le serveur
-    logger.offline('Syncing store action', {
-      ticketId: data.ticketId
-    });
-    
-    return {
-      success: true,
-      action: 'store',
-      ticketId: data.ticketId
-    };
+    return this.pushToServer('store', data, client => client.storeScan(data));
   }
 
   /**
@@ -370,17 +373,7 @@ class OfflineService {
    * @returns {Promise<Object>} Résultat
    */
   async syncValidateAction(data) {
-    // Placeholder pour synchronisation avec le serveur
-    logger.offline('Syncing validate action', {
-      ticketId: data.ticketId,
-      validationCount: data.validationCount
-    });
-    
-    return {
-      success: true,
-      action: 'validate',
-      ticketId: data.ticketId
-    };
+    return this.pushToServer('validate', data, client => client.validateScan(data));
   }
 
   /**
@@ -389,16 +382,76 @@ class OfflineService {
    * @returns {Promise<Object>} Résultat
    */
   async syncUpdateAction(data) {
-    // Placeholder pour synchronisation avec le serveur
-    logger.offline('Syncing update action', {
-      ticketId: data.ticketId
-    });
-    
-    return {
-      success: true,
-      action: 'update',
-      ticketId: data.ticketId
-    };
+    return this.pushToServer('update', data, client => client.updateScan(data));
+  }
+
+  /**
+   * Pousse réellement un élément vers le serveur via le client injecté.
+   * Sans client branché, renvoie un statut "non synchronisé" EXPLICITE
+   * (success:false + code NOT_SYNCED) : aucun faux succès, l'élément reste
+   * dans la file pendingSync pour une tentative ultérieure.
+   * @param {string} action - Type d'action (store/validate/update)
+   * @param {Object} data - Données à synchroniser
+   * @param {Function} invoke - (client) => Promise, appel réel au serveur
+   * @returns {Promise<Object>} Résultat de la synchronisation
+   */
+  async pushToServer(action, data, invoke) {
+    if (!this.syncClient || typeof invoke !== 'function') {
+      logger.offline('Sync skipped: no sync client configured', {
+        action,
+        ticketId: data.ticketId
+      });
+      return {
+        success: false,
+        synced: false,
+        action,
+        ticketId: data.ticketId,
+        error: 'Aucun client de synchronisation configuré',
+        code: 'SYNC_CLIENT_NOT_CONFIGURED'
+      };
+    }
+
+    try {
+      const serverResult = await invoke(this.syncClient);
+      const ok = serverResult ? serverResult.success !== false : true;
+
+      if (!ok) {
+        return {
+          success: false,
+          synced: false,
+          action,
+          ticketId: data.ticketId,
+          error: (serverResult && serverResult.error) || 'Échec de la synchronisation serveur',
+          code: 'SYNC_SERVER_REJECTED'
+        };
+      }
+
+      logger.offline('Sync action pushed to server', {
+        action,
+        ticketId: data.ticketId
+      });
+
+      return {
+        success: true,
+        synced: true,
+        action,
+        ticketId: data.ticketId
+      };
+    } catch (error) {
+      logger.error('Failed to push sync action to server', {
+        error: error.message,
+        action,
+        ticketId: data.ticketId
+      });
+      return {
+        success: false,
+        synced: false,
+        action,
+        ticketId: data.ticketId,
+        error: 'Erreur réseau lors de la synchronisation',
+        code: 'SYNC_NETWORK_ERROR'
+      };
+    }
   }
 
   /**

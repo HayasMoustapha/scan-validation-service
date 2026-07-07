@@ -10,6 +10,7 @@ const {
   ticketValidationErrorResponse,
   offlineErrorResponse
 } = require('../../utils/response');
+const { sendControllerError } = require('../../utils/controller-error');
 const logger = require('../../utils/logger');
 
 /**
@@ -56,9 +57,7 @@ class ScansController {
         error: error.message
       });
 
-      return res.status(500).json(
-        errorResponse('Échec du démarrage de la session de scan', null, 'SESSION_START_FAILED')
-      );
+      return sendControllerError(res, error, 'Échec du démarrage de la session de scan', 'SESSION_START_FAILED');
     }
   }
 
@@ -91,9 +90,7 @@ class ScansController {
         sessionId: req.body?.sessionId
       });
 
-      return res.status(500).json(
-        errorResponse('Échec de la fin de la session de scan', null, 'SESSION_END_FAILED')
-      );
+      return sendControllerError(res, error, 'Échec de la fin de la session de scan', 'SESSION_END_FAILED');
     }
   }
 
@@ -125,9 +122,7 @@ class ScansController {
         query: req.query
       });
 
-      return res.status(500).json(
-        errorResponse('Échec de la récupération des sessions actives', null, 'ACTIVE_SESSIONS_RETRIEVAL_FAILED')
-      );
+      return sendControllerError(res, error, 'Échec de la récupération des sessions actives', 'ACTIVE_SESSIONS_RETRIEVAL_FAILED');
     }
   }
   /**
@@ -217,9 +212,7 @@ class ScansController {
         error: error.message
       });
 
-      return res.status(500).json(
-        errorResponse('Échec de la validation du ticket', null, 'TICKET_VALIDATION_FAILED')
-      );
+      return sendControllerError(res, error, 'Échec de la validation du ticket', 'TICKET_VALIDATION_FAILED');
     }
   }
 
@@ -260,9 +253,7 @@ class ScansController {
         ticketId: req.body.ticketId
       });
 
-      return res.status(500).json(
-        errorResponse('Échec de la validation offline du ticket', null, 'OFFLINE_VALIDATION_FAILED')
-      );
+      return sendControllerError(res, error, 'Échec de la validation offline du ticket', 'OFFLINE_VALIDATION_FAILED');
     }
   }
 
@@ -296,9 +287,7 @@ class ScansController {
         ticketId: req.params.ticketId
       });
 
-      return res.status(500).json(
-        errorResponse('Échec de la récupération de l\'historique des scans', null, 'SCAN_HISTORY_FAILED')
-      );
+      return sendControllerError(res, error, 'Échec de la récupération de l\'historique des scans', 'SCAN_HISTORY_FAILED');
     }
   }
 
@@ -336,9 +325,7 @@ class ScansController {
         eventId: req.params.eventId
       });
 
-      return res.status(500).json(
-        errorResponse('Échec de la récupération des statistiques de scan', null, 'SCAN_STATS_FAILED')
-      );
+      return sendControllerError(res, error, 'Échec de la récupération des statistiques de scan', 'SCAN_STATS_FAILED');
     }
   }
 
@@ -405,9 +392,7 @@ class ScansController {
         error: error.message
       });
 
-      return res.status(500).json(
-        errorResponse('Échec de la récupération des logs de scan', null, 'SCAN_LOGS_FAILED')
-      );
+      return sendControllerError(res, error, 'Échec de la récupération des logs de scan', 'SCAN_LOGS_FAILED');
     }
   }
 
@@ -434,9 +419,7 @@ class ScansController {
         error: error.message
       });
 
-      return res.status(500).json(
-        errorResponse('Échec de la récupération des statistiques', null, 'STATS_FAILED')
-      );
+      return sendControllerError(res, error, 'Échec de la récupération des statistiques', 'STATS_FAILED');
     }
   }
 }
